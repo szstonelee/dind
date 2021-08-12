@@ -98,7 +98,7 @@
 
 如果对比起来，我个人的观点，对于Database而言，纯Raft的解决方案并不好。
 
-etcd是纯Raft，但不是面向Database，而是meta-data datastore。所以etcd没有问题。但如果你将纯Raft用于真正的Database开发，或者分补式存储引擎开发，请慎之。
+etcd是纯Raft，但不是面向Database，而是meta-data datastore。所以etcd没有问题。但如果你将纯Raft用于真正的Database开发，或者分布式存储引擎开发，请慎之。
 
 我的观点：
 
