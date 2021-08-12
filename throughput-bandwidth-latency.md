@@ -141,3 +141,9 @@ Bandwidth，就是站在某个硬件（或部件，但一般不会是客户端�
 但一般而言，磁盘是最慢的，上面的几个数字也能推算出。
 
 一个系统的Throughput，像一桶水一样，是由最短的那个板决定容量。所以，我们需要特别关注最慢的硬件，也就是磁盘。同时，我们要用好Pattern和有效率，尽量使整个系统（也就是客户端角度）Throughput去靠近这个Bandwidth。
+
+## 参考
+
+我自己比较关注磁盘的特性，做了一些实验，详细可参考：
+
+https://hub.fastgit.org/szstonelee/SSDInternal/blob/master/scenario.md
