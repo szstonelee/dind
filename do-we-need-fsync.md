@@ -20,7 +20,7 @@
 
 但问题是：fsync是个非常慢的动作。
 
-[站在Latency角度看](throughput-bandwidth-latency)，如果向内存写入数据，Latency是几个ns，最多100个ns。而如果向磁盘写入，对于HDD，Latency是几个ms级别，SSD是几十或几百个us级别。这都是千倍，甚至百万倍的时间差别。
+[站在Latency角度看](throughput-bandwidth-latency.md)，如果向内存写入数据，Latency是几个ns，最多100个ns。而如果向磁盘写入，对于HDD，Latency是几个ms级别，SSD是几十或几百个us级别。这都是千倍，甚至百万倍的时间差别。
 
 而且，磁盘是单条路径，不能并发。也许你看SSD的内部是并发的（SSD因此而快，可参考：[Kafka is Database](https://zhuanlan.zhihu.com/p/392645152)），操作系统提交给SSD也可以多线程多队列（而且对于NVMe SSD这样做是提高其Throughput的一个好的解决方案），但是，对于OS内核的SSD driver和SSD硬件实体之间，还是单通道的。
 
