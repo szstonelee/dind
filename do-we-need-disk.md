@@ -42,6 +42,6 @@
 
 ## BunnyRedis作为案例
 
-BunnyRedis就是如上设计的。它的热数据，永远只在内存里，不写盘。同时，它假设所有的key都在内存里，所以，如果在内存里找不到这个key，它也可以直接回应客户，没有找到Not Found，这样，就进一步省掉了读盘操作，同时提高了客户端的Throughput。（但有trade-off，我们需要用内存存储冷数据的key，但我们假设key是足够小的，一般几个或几十个字节而已，所以i，这个代价值得付出）
+BunnyRedis就是如上设计的。它的热数据，永远只在内存里，不写盘。同时，它假设所有的key都在内存里，所以，如果在内存里找不到这个key，它也可以直接回应客户，没有找到Not Found，这样，就进一步省掉了读盘操作，同时提高了客户端的Throughput。（但有trade-off，我们需要用内存存储冷数据的key，但我们假设key是足够小的，一般几个或几十个字节而已，所以，这个代价值得付出）
 
-而且，BunnyRedis用到的Kafka还存着一批数据，BunnyRedis更不用担心此事。但正如上文分析的，[Kafka其实也可以不存盘](do-we-need-wal.md)，只要当前的Kafka热数据保存到被所有bunny-redis进程consume掉，那么这些Kafka热数据，都可以作为冷数据丢掉。
+而且，BunnyRedis里的Kafka还存着一批同样的数据，BunnyRedis更不用担心此事。但正如上文分析的，[Kafka其实也可以不存盘](do-we-need-wal.md)，只要当前的Kafka热数据保存到被所有bunny-redis进程consume掉，那么这些Kafka热数据，都可以作为冷数据丢掉。
