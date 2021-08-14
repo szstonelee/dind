@@ -40,7 +40,7 @@ Latency要注意的几点：
 
 但对于一个稳定的系统，一般而言，计算时间发送变化，但如果测试次数足够多，从统计角度看，它是一个比较稳定的值。
 
-于是，我们用概率去描述这个统计稳定值，一般用P99, P50， Avarage这些指标来描述。P99就是99%的时间，低于当前这个值。Avarage，就是所有的次数的时间总和除于次数。
+于是，我们用概率去描述这个统计稳定值，一般用P99, P50， Average这些指标来描述。P99就是99%的时间，低于当前这个值。Avarage，就是所有的次数的时间总和除于次数。
 
 这样，我们才能用一个稳定的值作为标识，来替代并不稳定的单次Latency计时。
 
@@ -52,7 +52,7 @@ Latency要注意的几点：
 
 以上面为例，我们发送一个Ping，返回一个Pong，作为一个动作。然后我们不停发送（但必须等到Pong回来后，才发下一个），然后我们计算1秒内，我们能够处理这样的动作有多少个。
 
-数学好的同学，很快能算出，假设Avage Latecny = 200us，且很稳定的话，那么Throughput = 1秒/200us = 5000 op/秒。即Throughput是5K。
+数学好的同学，很快能算出，假设Average Latency = 200us，且很稳定的话，那么Throughput = 1秒/200us = 5000 op/秒。即Throughput是5K。
 
 同样地，你会发现，Throughput也受上面的两个因素影响。
 
@@ -60,7 +60,7 @@ Latency要注意的几点：
 
 同时，Throughtput也需要用统计概率来描述，幸运的是，我们用一段很长的时间，比如秒，来描述Throughput，所以，从统计角度，它一般是个稳定值。（记住：在计算机世界里，1秒是个相当长的时间）
 
-那么，Throughtput是否能简单地由Latency得来？
+那么，Throughput是否能简单地由Latency得来？
 
 不可以。
 
@@ -101,7 +101,7 @@ Latency要注意的几点：
 fio --name=w --rw=write --ioengine=sync --direct=0 --fsync=1 --end_fsync=1 --size=200M --bs=4k;
 ```
 
-在我的Mac机器上，输出是：Throghput = 2.8MB/s
+在我的Mac机器上，输出是：Throughput = 2.8MB/s
 
 然后改为每写一个block size为1024K（--bs=1024k），就fsync一次
 ```
