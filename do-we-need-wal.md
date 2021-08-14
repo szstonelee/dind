@@ -54,13 +54,15 @@ WAL，write ahead log，是为了优化磁盘性能的一个方法，广泛用�
 
 你可能会问，BunnyRedis不是用到了Kafka，那个Kafka Log不就是BunnyRedis的WAL吗？
 
-是的，Kafka的Log，相当于BunnyRedis的WAL。
+是的，Kafka的Log，相当于BunnyRedis的WAL。但是，这个WAL并不是常规数据库里的那个意义的WAL。
 
-但是，
+因为：
 
-1. 理论上，我可以关闭Kafka的写盘，只要至少一台bunny-rediis进程活着，这个数据就没有丢。
+1. 理论上，我可以关闭Kafka的写盘，只要至少一台bunny-redis进程活着，就会有一个dataset被bunny-redis进程所拥有。
 
-2. Kafka收到bunny-redis的数据，它并不很快落盘。对于很多数据库系统是每秒必须落盘（至多丢1秒或2秒的数据），但对于Kafka，完全依赖操作系统的后台刷盘，时间可以到几十分钟。也就是说，Kafka Log, 作为BunnyRedis的WAL，它不在磁盘上，而在内存上。
+2. Kafka收到bunny-redis的数据，它并不很快落盘。WAL对于很多数据库系统是至少每秒必须落盘一次（至多丢1秒或2秒的数据），但对于Kafka，完全依赖操作系统的后台刷盘，时间可以到几十分钟。也就是说，Kafka Log, 作为BunnyRedis的WAL，它不在磁盘上，而在内存上。
+
+3. 而且BunnyRedis这个所谓的WAL不会丢数据，只要一台Kafka broker还活着。
 
 对于Kafka而言，它的数据，就是它的Log（所以，Kafka没有WAL）。
 
