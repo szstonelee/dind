@@ -60,7 +60,7 @@
 
 那么发生网络故障怎么办？
 
-方法很简单：对于集群系统，如果发生网络故障，我们就不做承诺（发送committed response给客户）。更先进的解决方案是：对于网络也做冗余，即网络通道不只一个，如果有双网络故障的概率，希望这个概率也趋近于零。
+方法很简单：对于集群系统，如果发生网络故障，我们就不做承诺（发送committed response给客户）。更先进的解决方案是：对于网络也做冗余，即网络通道不只一个，如果有双网络故障的概率，希望这个概率也趋近于零（一个类似的案例是UUID，理论上有重复的可能，但实践中我们认为就是唯一值，因为概率够低）。
 
 ## 结论
 
@@ -72,7 +72,7 @@
 
 两个我自己实践的案例：
 
-[优化etcd](https://zhuanlan.zhihu.com/p/395748015)
+[优化etcd](https://zhuanlan.zhihu.com/p/395748015)，通过取消fsync，让etcd提高Throughput
 
-[BunnyRedis](https://zhuanlan.zhihu.com/p/392646113)
+[BunnyRedis](https://zhuanlan.zhihu.com/p/392646113)，BunnyRedis里没有fsync，不管是第一层bunny-redis的RocksDB，还是后面一层的Kafka。
 
