@@ -10,9 +10,9 @@
 
 再看一个思考：我们需要WAL吗？
 
-## 单机为什么需要WAL
+## 单机为什么需要WAL？
 
-WAL，write ahead log，是为了优化磁盘性能的一个方法。
+WAL，write ahead log，是为了优化磁盘性能的一个方法，广泛用于数据库系统（你几乎找不到不支持WAL的数据库系统）
 
 磁盘是慢速的，但磁盘的慢速，不是简单的一个点，而是有很复杂的机理。
 
@@ -28,21 +28,25 @@ WAL，write ahead log，是为了优化磁盘性能的一个方法。
 
 [Kafka is Database](https://zhuanlan.zhihu.com/p/392645152)，里面有对用Log写盘，来替代直接内存Page写盘，所带来的好处。
 
+简而言之，就是利用磁盘对于Log效率高的特性，让数据的修改，分在两次（即冗余），一次在WAL，并很快滴落盘；一次在你真正dataset（如B+树的内存页），晚些落盘，从而提高整个系统的Throughput。这样，万一发生灾难，你可以用WAL挽救你的数据。
+
 于是，你可以看到，在很多数据库系统里，WAL是无处不在，比如：MySQL的redo log，RocksDB的WAL，etcd的WAL。都是这个思想。
 
 ## 分布式下还需要WAL吗？
 
-首先，你从上面的分析可以看出，WAL是冗余的。即数据被写了两次（包括内存，也包括磁盘），一次是到Write Ahead Log，一次是到你的真正的数据结构（比如：B+的页，比如LSM的SST文件）。
+首先，你从上面的分析可以看出，WAL是冗余的。数据被写了两次。
 
-但如果参考之前的分析：
+如果理论上不存在灾难，我们完全可以不用WAL。
 
-[分布式下：我们还需要fsync吗](do-we-need-fsync.md)，你会发现，我们可以省掉这个WAL。因为：
+请你再参考我之前的一个分析：
 
-1. 数据已经在内存的data structure里存在多份（多机），我们可以满足用户不丢数据的承诺
+[分布式下：我们还需要fsync吗](do-we-need-fsync.md)，你会发现，对于WAL，我们可以用同样的思路。因为：
+
+1. 数据已经在内存的data structure里存在多份（多机），我们可以满足用户不丢数据的承诺（只要两台机器不同时死，而且我们认为两台同时死的概率趋近于零）
 
 2. 我们不用急着对内存的data structure刷盘，从而一样获得上面用WAL的那些好处：数据页可以多次修改但一次刷牌，数据如果连续可以做续类似Log式的刷盘（比如LSM下的SST就是数据连续的）
 
-所以，实际上，我们可以省掉WAL。
+所以，我的倾向，在分布式系统里，我们可以去除WAL。
 
 ## 一个这样实践的案例BunnyRedis（还有Kafka）
 
@@ -52,10 +56,14 @@ WAL，write ahead log，是为了优化磁盘性能的一个方法。
 
 是的，Kafka的Log，相当于BunnyRedis的WAL。
 
-但是，理论上，我可以关闭Kafka的写盘，只要至少一台bunny-rediis进程活着，这个数据就没有丢。
+但是，
 
-而且，对于Kafka而言，它的数据，就是它的Log（所以，Kafka没有WAL）。
+1. 理论上，我可以关闭Kafka的写盘，只要至少一台bunny-rediis进程活着，这个数据就没有丢。
 
-而且，Kafka的数据写入磁盘的速度，几乎等同于网络输入的Throughput，这个没有任何瓶颈。
+2. Kafka收到bunny-redis的数据，它并不很快落盘。对于很多数据库系统是每秒必须落盘（至多丢1秒或2秒的数据），但对于Kafka，完全依赖操作系统的后台刷盘，时间可以到几十分钟。也就是说，Kafka Log, 作为BunnyRedis的WAL，它不在磁盘上，而在内存上。
+
+对于Kafka而言，它的数据，就是它的Log（所以，Kafka没有WAL）。
+
+而且，Kafka依赖操作系统后台写入磁盘的速度，几乎等同于一般网络的Throughput，这个没有任何瓶颈。
 
 详细可Kafka官方说明：[Don't fear the filesystem!](https://kafka.apache.org/documentation/#design_filesystem)
