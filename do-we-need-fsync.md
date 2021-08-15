@@ -26,7 +26,7 @@
 
 而且，磁盘是单条路径，不能并发。也许你看SSD的内部是并发的（SSD因此而快，可参考：[Kafka is Database](https://zhuanlan.zhihu.com/p/392645152)），操作系统提交给SSD也可以多线程多队列（而且对于NVMe SSD这样做是提高其Throughput的一个好的解决方案），但是，对于OS内核的SSD driver和SSD硬件实体之间，还是单通道的。
 
-而对于内存和CPU不一样。主内存Main Memory的操作虽然是单通道的，但可以通过多条内存条、NUMA下的多个Memory Bus、最重要的是，让CPU实现多个CPU core以及对应的每个CPU corer一个L1 Cache，让并发得以提升。
+而对于内存和CPU不一样。主内存Main Memory的操作虽然是单通道的，但可以通过多条内存条、NUMA下的多个Memory Bus、最重要的是，让CPU实现多个CPU core以及对应的每个CPU corer一个L1 Cache，让并发得以提升（其实从某种程度而言，现代CPU多core的架构就是一种分布式）。
 
 网络端，由于网卡的Bandwidth足够大，可以让多个客户端并发发送数据包，实现更好的并发性。
 
