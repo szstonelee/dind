@@ -18,7 +18,7 @@ WAL，write ahead log，是为了优化磁盘性能的一个方法，广泛用�
 
 大家可以参考我之前的一个文章：
 
-[Throughput, Bandwidth, Latency](throughtput-bandwidth-latency.md)
+[Throughput, Bandwidth, Latency](throughput-bandwidth-latency.md)
 
 里面有一个磁盘在不同Pattern下的测试数据，可以看到，对于不同的block size，磁盘的Throughput有几十倍的差别。
 
@@ -26,9 +26,9 @@ WAL，write ahead log，是为了优化磁盘性能的一个方法，广泛用�
 
 大家可以参考另外一篇文章
 
-[Kafka is Database](https://zhuanlan.zhihu.com/p/392645152)，里面有对用Log写盘，来替代直接内存Page写盘，所带来的好处。
+[Kafka is Database](https://zhuanlan.zhihu.com/p/392645152)，里面有对MySQL redo的分析：用Log写盘，来替代直接内存Page写盘，所带来的好处。
 
-简而言之，就是利用磁盘对于Log效率高的特性，让数据的修改，分在两次（即冗余），一次在WAL，并很快滴落盘；一次在你真正dataset（如B+树的内存页），晚些落盘，从而提高整个系统的Throughput。这样，万一发生灾难，你可以用WAL挽救你的数据。
+简而言之，就是利用磁盘对于Log效率高的特性，让数据的修改，分在两次（即冗余），一次在WAL，并很快落盘；一次在你真正dataset（如B+树的内存页），晚些落盘，从而提高整个系统的Throughput。这样，万一发生灾难，你可以用WAL挽救你的数据。
 
 于是，你可以看到，在很多数据库系统里，WAL是无处不在，比如：MySQL的redo log，RocksDB的WAL，etcd的WAL。都是这个思想。
 
@@ -44,7 +44,7 @@ WAL，write ahead log，是为了优化磁盘性能的一个方法，广泛用�
 
 1. 数据已经在内存的data structure里存在多份（多机），我们可以满足用户不丢数据的承诺（只要两台机器不同时死，而且我们认为两台同时死的概率趋近于零）
 
-2. 我们不用急着对内存的data structure刷盘，从而一样获得上面用WAL的那些好处：数据页可以多次修改但一次刷牌，数据如果连续可以做续类似Log式的刷盘（比如LSM下的SST就是数据连续的）
+2. 我们不用急着对内存的data structure刷盘，从而一样获得上面用WAL的那些好处：数据页可以多次修改但一次刷牌，数据如果连续可以做类似Log式的刷盘（比如LSM下的SST就是数据连续的）
 
 所以，我的倾向，在分布式系统里，我们可以去除WAL。
 
