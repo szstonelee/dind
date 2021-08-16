@@ -68,4 +68,4 @@ WAL，write ahead log，是为了优化磁盘性能的一个方法，广泛用�
 
 而且，Kafka依赖操作系统后台写入磁盘的速度，几乎等同于一般网络的Throughput，这个没有任何瓶颈。
 
-详细可Kafka官方说明：[Don't fear the filesystem!](https://kafka.apache.org/documentation/#design_filesystem)
+详细可参考Kafka官方说明：[Don't fear the filesystem!](https://kafka.apache.org/documentation/#design_filesystem)
