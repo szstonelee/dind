@@ -42,6 +42,47 @@ Kafka用得更多，比如：
 
 3. [RdlibKafka High Performance](https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#performance)
 
+## 一些常规代码里也经常用到Batch
+
+比如：我们有一个动态数组（假设是整型），传入应该是空的，我们需要初始化连续的数字（从零开始）
+
+C++
+```
+void init_continuouse_nums(const int count, std::vector<int>& nums)
+{
+  assert(count > 0 && nums.size() == 0);
+
+
+  for (int i = 0; i < count; ++i)
+  {
+    nums.push_back(i);
+  }
+}
+```
+
+Java
+```
+void initContinuouseNums(int count, ArrayList<Int> nums) {
+  Preconditions.checkArgument(count > 0 && nums != null && nums.size() == 0);
+
+  for (int i = 0; i < count; ++i) {
+    nums.add(i);
+  }
+}
+```
+
+这个代码是不够优化的，因为动态数组涉及可能发生多次内存的分配，我们完全可以做一次批处理
+
+对于C++，加入下面的代码
+```
+  nums.reserve(count);
+```
+
+对于Java，加入下面的代码
+```
+  nums.ensureCapacity(count);
+```
+
 ## Batch有两种：Pipeline和Group(Aggregation)
 
 我们要知道，Batch有两种，一种是Pipeline，一种是Group(Aggregation)
