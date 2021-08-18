@@ -12,7 +12,7 @@
 
 ## 磁盘上的Batch
 
-在[Throughput, Bandwidth, Latency](throughput-bandwidth-latency.md)里，我有个测试，对磁盘做同样的写，只是block size不同，一个是4K，一个是1024K，磁盘的Throughtput差别竟然大到超过60倍。
+在[Throughput, Bandwidth, Latency](throughput-bandwidth-latency.md)里，我有个测试，对磁盘做同样的写，只是block size不同，一个是4K，一个是1024K，磁盘的Throughput差别竟然大到超过60倍。
 
 这就是Batch的力量。因为如果是4K一次提交，磁盘这个轿车，就只能载4K这样一个人。而1024K一次提交，磁盘这个轿车就可以满载而归。
 
@@ -38,13 +38,13 @@ Kafka用得更多，比如：
 
 1. IO上的Batch，参考[Kafka Efficiency](https://kafka.apache.org/documentation/#maximizingefficiency)
 
-2. [Batch Compresssion](https://kafka.apache.org/documentation/#design_compression)
+2. [Batch Compression](https://kafka.apache.org/documentation/#design_compression)
 
 3. [RdlibKafka High Performance](https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#performance)
 
 ## Batch有两种：Pipeline和Group(Aggregation)
 
-我们要知道，Pipeline有两种，一种是Pipeline，一种是Group(Aggregation)
+我们要知道，Batch有两种，一种是Pipeline，一种是Group(Aggregation)
 
 ### 什么是Pipeline
 
@@ -78,4 +78,4 @@ Batch是个好东西，不代表它没毛病。
 
 举个例子：etcd，如果是单次小字节请求，Throughput并不高，低可能到几百，高也就几K。但etcd采用了Batch优化，可以在一些场景下（符合Batch的条件，比如：客户端并发数足够多）将这个Throughput提高到几十K。
 
-所以，分布式，我们应该尽量用足Batch，它确实是个好东西。
+所以，分布式下，我们应该尽量用足Batch，它确实是个好东西。
