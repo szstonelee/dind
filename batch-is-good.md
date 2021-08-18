@@ -105,13 +105,13 @@ Pipeline需要客户端有一定的智能化，也就是说，客户端要buffer
 
 而Group可以省掉客户端的这个智能化，将buffer逻辑放在服务器端，但必须对于多个并发客户才能有效。如果客户端足够多，请求并发足够大，那么Group的效果要好于Pipeline，因为客户端不用等待再批处理发送（客户端因此可能降低Latency，如果和客户端同时也做buffer对比）。
 
-### Batch的trade-off
+## Batch的trade-off
 
 Batch是个好东西，不代表它没毛病。
 
 首先是复杂了代码，其次是可能加大Latency。不管是基于客户端的Pipeline，还是基于服务器端的Group，都需要等待一定的时间（或者超过一定字节的buffer）。这就会延长单个请求的Latency，特别是第一个请求的Latency。
 
-但如果系统能接受一定程度的Latency牺牲，这个Batch锁带来Throughput很可能会有极其大的提升，那么这个trade-off就值得。
+但如果系统能接受一定程度的Latency牺牲，这个Batch所带来Throughput很可能会有极其大的提升，那么这个trade-off就值得。
 
 ## 分布式下的结论
 
