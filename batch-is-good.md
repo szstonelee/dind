@@ -83,6 +83,8 @@ void initContinuouseNums(int count, ArrayList<Int> nums) {
   nums.ensureCapacity(count);
 ```
 
+有兴趣的同学可以benchmark上面不同代码的latency，我想结果对比会让你自己吓一大跳。
+
 ## Batch有两种：Pipeline和Group(Aggregation)
 
 我们要知道，Batch有两种，一种是Pipeline，一种是Group(Aggregation)
