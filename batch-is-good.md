@@ -120,3 +120,15 @@ Batch是个好东西，不代表它没毛病。
 举个例子：etcd，如果是单次小字节请求，Throughput并不高，低可能到几百，高也就几K。但etcd采用了Batch优化，可以在一些场景下（符合Batch的条件，比如：客户端并发数足够多）将这个Throughput提高到几十K。
 
 所以，分布式下，我们应该尽量用足Batch，它确实是个好东西。
+
+## BunnyRedis的实践
+
+BunnyRedis除了用到Redis的Pipeline，以及RocksDB的batch，Kafka的Batch，它还利用了Redis的Transaction实现了Batch功能，提高了Throughput。
+
+因为对于Redis的写命令，BunnyRedis必须通过Kafka做到强一致，而这个逃不掉[分布式下强一致的代价](cost-of-consistency.md)。
+
+但如果做Transaction，BunnyRedis就可以在保证强一致的前提下，让效率得以提升。
+
+比如：一个Transaction如果有10个Write命令，那么如果分开写，BunnyRedis需要通过Kafka做10次同步，但如果放在Transaction里，则只需要一次同步。
+
+测试表明，这可以带来9倍的提高。详细可参考：[通过Pipeline和Transaction提高BunnyRedis的Throughput](https://zhuanlan.zhihu.com/p/392787651)
