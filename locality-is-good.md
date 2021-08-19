@@ -60,7 +60,7 @@ Redis使用到一个特殊的数据结构，叫[ZipList](https://redis.com/ebook
 
 BunnyRedis也充分利用了Redis这个数据结构的特点，所以，如果你的Hash是ZipList，那么BunnyRedis将整个Hash存盘。而当Hash从ZipList转为纯Hash Table后，BunnyRedis才对其内部的field进行单独的存盘。详细可参考：[BunnyRedis的Hash的存盘策略](https://github.com/szstonelee/bunnyredis/wiki/Hash-storage)
 
-同时，如果你去看Redis的用法，它非常在意内存的有效利用率。开始我以为它只是为了节省内存，从而在有限的内存空间里尽量多存储数据，现在我觉得它还有一个很重要的意义，就是这种设计思想，会更有可能导致数据Locality变好，进而让速度也得以提升。比如：你看Redis的Hash Table的Rehash，大部分语言，如Java、C++，都是在load factor在75%时（即整个Hash Table的使用量），就进行Rehash，而Redis很特别，它是在load factor为100%时，才考虑进行Rehash，即Redis里的Hash Table，如果数据比较大的时候，里面会有不少的collision，很多时候，一次读就能获得数据还是需要再走一下Hash冲突后的链表，从数学角度这样好像很不科学，但站在现代硬件角度，这样做，不一定性能就差（或者降低很多，而且trade off带来的内存有效利用率更值得）。
+同时，如果你去看Redis的用法，它非常在意内存的有效利用率。开始我以为它只是为了节省内存，从而在有限的内存空间里尽量多存储数据，现在我觉得它还有一个很重要的意义，就是这种设计思想，会更有可能导致数据Locality变好，进而让速度也得以提升。比如：你看Redis的Hash Table的Rehash，大部分语言，如Java、C++，都是在load factor在75%时（即整个Hash Table的使用量），就进行Rehash，而Redis很特别，它是在load factor为100%时，才考虑进行Rehash，即Redis里的Hash Table，如果数据比较大的时候，里面会有不少的collision，很多时候，一次读就能获得数据还是需要再走一下Hash冲突后的链表，从数学角度这样好像很不科学，但站在现代硬件角度，这样做，不一定性能就差（或者降低不多，而且trade off带来的内存有效利用率更值得）。
 
 也许Hash collision的解决方案[Linear probing](https://en.wikipedia.org/wiki/Linear_probing)，是个更好的解决方案。
 
