@@ -30,6 +30,8 @@ WAL，write ahead log，是为了优化磁盘性能的一个方法，广泛用�
 
 简而言之，就是利用磁盘对于Log效率高的特性，让数据的修改，分在两次（即冗余），一次在WAL，并很快落盘；一次在你真正dataset（如B+树的内存页），晚些落盘，从而提高整个系统的Throughput。这样，万一发生灾难，你可以用WAL挽救你的数据。
 
+WAL还有另外一个作用，就是ACID中A的保证。因为data page并不能保证Atomic（数据库可能分开写盘、也可能部分Partial写盘）。
+
 于是，你可以看到，在很多数据库系统里，WAL是无处不在，比如：MySQL的redo log，RocksDB的WAL，etcd的WAL。都是这个思想。
 
 ## 分布式下还需要WAL吗？
