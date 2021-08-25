@@ -62,21 +62,21 @@ Shard对于scale out是个非常好的方案，而且是性能如果到达瓶颈
 
 同时，我前面发表的一些分布式优化，你也可以参考一下，如果你的单Shard（即无Shard）在这些优化下，都能做到不出现瓶颈，那么，你就不必急着分库分表，做Shard。
 
-* [分布式下思考：我们需要fsync吗](do-we-need-fsync.md)
+* [分布式思考：我们需要fsync吗](https://zhuanlan.zhihu.com/p/400099269)
 
-* [分布式下思考：我们需要WAL吗](do-we-need-wal.md)
+* [分布式思考：我们需要WAL吗](https://zhuanlan.zhihu.com/p/400338569)
 
-* [分布式下思考：我们需要磁盘吗](do-we-need-disk.md)
+* [分布式思考：我们需要磁盘吗](https://zhuanlan.zhihu.com/p/400480015)
 
-* [分布式下思考：批处理Batch是个好东西](batch-is-good.md)
+* [分布式思考：批处理Batch是个好东西](https://zhuanlan.zhihu.com/p/401190110)
 
-* [分布式下思考：Locality是个好东西](locality-is-good.md)
+* [分布式思考：Locality是个好东西](https://zhuanlan.zhihu.com/p/401569843)
 
-* [分布式下思考：锁是个麻烦](lock-is-bad.md)
+* [分布式思考：锁是个麻烦](https://zhuanlan.zhihu.com/p/401716856)
 
-* [分布式下思考：如何提高性能](how-improve-throughput.md)
+* [分布式思考：如何提高性能](https://zhuanlan.zhihu.com/p/402660843)
 
-* [分布式下思考：少就是多，多就是少](less-is-more.md)
+* [分布式思考：少就是多，多就是少](lhttps://zhuanlan.zhihu.com/p/402990609)
 
 ## 我个人关于Shard的几个观点
 
