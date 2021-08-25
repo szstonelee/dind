@@ -28,7 +28,7 @@ Shard对于scale out是个非常好的方案，而且是性能如果到达瓶颈
 
 对于Distributed Transaction，当前主流做法是2PC -- Two Phase Commit。但是，这是个效率很低的解决方案，而且有单点故障。Google虽然通过Precolater做了一定程度的优化，即将undo（含redo）延后处理，来减少Latency，从而提高Throughput，但是，它仍没有解决单点故障的问题，同时代价还是很大（为了Isolation的支持，还需要通过分布式的硬件时钟，或者集中式的软件时钟来保证顺序）。
 
-## 一般情况下，Shard应该是最后的解决手段s
+## 一般情况下，Shard应该是最后的解决手段
 
 软件学说里有一句名言：**再没有达到瓶颈Bottleneck时，不要随意优化Optimization**
 
@@ -90,9 +90,9 @@ Shard对于scale out是个非常好的方案，而且是性能如果到达瓶颈
 
 5. 当Shard数据之间没有交互时，我们可以放心地、大胆地、自由地，去做Shard，这是Shard最佳的应用场景
 
-6. 分布式下的事务 不等于 分布式事务，即i.e., 分布式 + 事务 only = 分布式事务，是一个错觉
+6. 分布式下的事务 不等于 分布式事务，即i.e., 分布式 + 事务 != 分布式事务
 
-7. 分布式 不等于 Shard，即i.e., 分布式 only = Shard，是一个错觉
+7. 分布式 不等于 Shard，即i.e., 分布式 != Shard
 
 ## 我理想中的一个BunnyRedis集群的极限
 
@@ -148,9 +148,9 @@ Shard对于scale out是个非常好的方案，而且是性能如果到达瓶颈
 
 巴菲特的合伙人，查理·芒格，投资比亚迪的那个人，喜欢反向思维。就是：传统的思路是这样，但我如果不这样，会如何。这个文章，以及之前的几个文章，
 
-* [分布式思考：我们需要fsync吗？](do-we-need-fsync.md)
-* [分布式思考：我们需要WAL吗？](do-we-need-wal.md)
-* [分布式思考：我们需要磁盘吗？](do-we-need-disk.md)，
+* [分布式思考：我们需要fsync吗？](https://zhuanlan.zhihu.com/p/400099269)
+* [分布式思考：我们需要WAL吗？](https://zhuanlan.zhihu.com/p/400338569)
+* [分布式思考：我们需要磁盘吗？](https://zhuanlan.zhihu.com/p/400480015)，
 
 都是尝试向这位老先生学习的结果。
 
