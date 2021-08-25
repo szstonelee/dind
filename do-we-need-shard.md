@@ -1,4 +1,4 @@
-# 分布式思考：我们需要Shard吗？
+# 分布式思考：我们需要分片Shard吗（含分库分表）？
 
 ## Shard是个好东西
 
@@ -24,21 +24,21 @@ Shard对于scale out是个非常好的方案，而且是性能如果到达瓶颈
 
 2. Distributed Transaction
 
-对于Join，我们要到两个机器上去拿数据，因此，还需要一个中心店，做聚合Aggregation操作，同时，如果其中一个shard fail了，怎么办？
+对于Join，我们要到两个机器上去拿数据，因此，还需要一个中心点，做聚合Aggregation操作，同时，如果其中一个shard fail了，怎么办？
 
-对于Distributed Transaction，当前主流做法是2PC -- Two Phase Commit。但是，这是个效率很低的解决方案，而且有单点故障。Google虽然通过Precolater做了一定程度的优化，即将undo延后处理，来减少Latency，从而提高Throughput，但是，它仍没有解决单点故障的问题，同时代价还是很大（为了Isolation的支持，还需要通过分布式的硬件时钟，或者集中式的软件时钟来保证顺序）。
+对于Distributed Transaction，当前主流做法是2PC -- Two Phase Commit。但是，这是个效率很低的解决方案，而且有单点故障。Google虽然通过Precolater做了一定程度的优化，即将undo（含redo）延后处理，来减少Latency，从而提高Throughput，但是，它仍没有解决单点故障的问题，同时代价还是很大（为了Isolation的支持，还需要通过分布式的硬件时钟，或者集中式的软件时钟来保证顺序）。
 
-## 我的观点
+## shard一般应该是最后的解决手段
 
 软件学说里有一句名言：**再没有达到瓶颈Bottleneck时，不要随意优化Optimization**
 
-类似地，我认为：**在一个shard没有达到瓶颈Bottleneck时，不要轻易地分片Shard**
+类似地，我认为：**在一个shard（无shard）没有达到瓶颈Bottleneck时，不要轻易地分片Shard**
 
-因为分片shard带来的麻烦，如Join，Distributed Transaction，都是不可避免的（还包括上面的复杂度）。而如果没有Shard，那这些麻烦都将不用考虑，从而简化我们的分布式系统。
+因为分片shard带来的麻烦，如Join，Distributed Transaction，都是不可避免的（还包括最上面的shard管理的复杂度）。而如果没有Shard，那这些麻烦都将不用考虑，从而简化我们的分布式系统。
 
-分布式系统并不只是一开始就应该立刻进行分片Shard，或者说，分布式系统并不等于shard（而应该是性能问题解决解决不了才shard、或者很多时候是最后最终shard）。我们应该简化系统，在系统能解决问题的前提下，用简单的方法（甚至老式的方法）去解决问题，而不是一开始就高、大、上。
+分布式系统并不只是一开始就应该立刻进行分片Shard，或者说，分布式系统并不等于shard（而应该是性能问题解决不了才shard、或者很多时候是最后最终shard）。我们应该简化系统，在系统能解决问题的前提下，用简单的方法（甚至老式的方法）去解决问题，而不是一开始就高、大、上。
 
-## 我们当前一个数据的瓶颈达到了吗？
+## 我们当前一个shard（无shard）的瓶颈达到了吗？
 
 比如：我们的一个数据库服务器，我们发现它只能最大支持100K qps，于是，我们就认为，它的瓶颈到了，必须shard了。
 
@@ -46,7 +46,7 @@ Shard对于scale out是个非常好的方案，而且是性能如果到达瓶颈
 
 我们看一个正常的互联网应用，其访问基本准从大部分访问是Read，小部分访问是Write。
 
-如果90%的访问是Read，10%的访问是Write，那么，我们完全可以用十个机器来做一个集群，每个机器都有同样一份数据，那么就算访问量大到10倍，即1M qps，只要每台机器能支持100K Write qps，我们是不是就不用Shard。
+如果90%的访问是Read，10%的访问是Write，那么，我们完全可以用十个机器来做一个集群，每个机器都有同样一份数据，那么就算访问量大到10倍，即1M qps，只要每台机器能支持100K Write qps，我们是不是就不用Shard？
 
 你会说，Write会破坏一致性，不能保证Write时，十个机器的数据都是一致的。
 
@@ -56,11 +56,11 @@ Shard对于scale out是个非常好的方案，而且是性能如果到达瓶颈
 
 你会再说，这个BunnyRedis不过是解决key/value，这个对于Key/value适用，对于Relational Database不适用。即在我的文章[BunnyRedis的一致性Consistency](https://zhuanlan.zhihu.com/p/392653517)里，我只解决了右半边的问题，没有解决左半边的问题，比如：Read Committed, Repeatable Read, Serializable这些问题。
 
-是的，我正准备这些问题。至于如何解决，因为我还没有做出来产品，来证明我的观点，所以，不适合发表（Talk is cheap, show me your code）。
+是的，我正准备解决这些问题。至于如何解决，因为我还没有做出来产品，来证明我的观点，所以，不适合发表（Talk is cheap, show me your code）。
 
 但是，我认为，这是可以用类似的解决方案进行解决的问题。
 
-同时，我前面发表的一些分布式优化，你也可以参考一下，如果你的单shard在这些优化下，都能做到不出现瓶颈，那么，你就不必急着分库分表，做shard。
+同时，我前面发表的一些分布式优化，你也可以参考一下，如果你的单shard（即无shard）在这些优化下，都能做到不出现瓶颈，那么，你就不必急着分库分表，做shard。
 
 * [分布式下思考：我们需要fsync吗](do-we-need-fsync.md)
 
@@ -77,6 +77,22 @@ Shard对于scale out是个非常好的方案，而且是性能如果到达瓶颈
 * [分布式下思考：如何提高性能](how-improve-throughput.md)
 
 * [分布式下思考：少就是多，多就是少](less-is-more.md)
+
+## 我个人关于shard的几个观点
+
+1. 我们不应该在单shard（无shard）还没有到瓶颈时，就急着去做shard，因为这会带来复杂性，特别是shard之间有交互
+
+2. 在瓶颈判断时，我们不应该用整体（read + write）的负载（overhead）作为判断依据，而应该特别关注write，因为read几乎是无限扩展的，难点在write
+
+3. 我们不应该用master/slave（因此只有单一master）去作为必须shard的判断，因为强一致不一定就是master/slave，还有half master/master
+
+4. 我们应该让成为瓶颈的负载尽量最小，而不应该让可能出现瓶颈的组件做过多的事，一个案例就是：Kafka模式和纯Raft的对比
+
+5. 当shard数据之间没有交互时，我们可以放心地、大胆地、自由地，去做shard，这是shard最佳的应用场景
+
+6. 分布式下的事务 不等于 分布式事务，即i.e., 分布式 + 事务 only = 分布式事务，是一个错觉
+
+7. 分布式 不等于 shard，即i.e., 分布式 only = shard，是一个错觉
 
 ## 我理想中的一个BunnyRedis集群的极限
 

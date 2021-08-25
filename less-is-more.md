@@ -88,7 +88,9 @@ Kafka不用像Raft那样，选举时，搞人人投票，搞冲突机制，它�
 
 4. Kafka用controller独裁代替Raft的民主选举，使改朝换代的阵痛（cost）最小
 
-5. 但Trade Off是，Kafka还必须依赖第三方强一致系统（Zookeeper，或最近准备替换的Raft），来实现上面这些特性
+5. controller只所以敢任意指定继承者，是因为集群里All Committed (no data loss)
+
+6. 但Trade Off是，Kafka还必须依赖第三方强一致系统（Zookeeper，或最近准备替换的Raft），来实现上面这些特性
 
 即佛教里的禅语：**少就是多，多就是少**
 
