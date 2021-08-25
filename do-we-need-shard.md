@@ -52,7 +52,7 @@ Shard对于scale out是个非常好的方案，而且是性能如果到达瓶颈
 
 但如果解决了呢？
 
-[BunnyRedis要解决Redis的一致性Consistency问题](https://zhuanlan.zhihu.com/p/392637293)就是尝试解决这个问题的一个实践。即分布式下，如何保证数据的一致性。
+[BunnyRedis要解决Redis的一致性Consistency问题](https://zhuanlan.zhihu.com/p/392637293)就是尝试解决这个问题的一个实践（Half Master/Master）。即分布式下，不用单一master来保证数据的一致性。
 
 你会再说，这个BunnyRedis不过是解决key/value，这个对于Key/value适用，对于Relational Database不适用。即在我的文章[BunnyRedis的一致性Consistency](https://zhuanlan.zhihu.com/p/392653517)里，我只解决了右半边的问题，没有解决左半边的问题，比如：Read Committed, Repeatable Read, Serializable这些问题。
 
@@ -76,7 +76,7 @@ Shard对于scale out是个非常好的方案，而且是性能如果到达瓶颈
 
 * [分布式思考：如何提高性能](https://zhuanlan.zhihu.com/p/402660843)
 
-* [分布式思考：少就是多，多就是少](lhttps://zhuanlan.zhihu.com/p/402990609)
+* [分布式思考：少就是多，多就是少](https://zhuanlan.zhihu.com/p/402990609)
 
 ## 我个人关于Shard的几个观点
 
