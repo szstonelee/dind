@@ -8,7 +8,7 @@ Shard是个好东西，对于分布式系统，它将数据分开，存储在不
 
 Shard的管理会增加新的复杂度，但通过一些手段我们可以解决：
 
-1. [Consistenct Hashing](https://en.wikipedia.org/wiki/Consistent_hashing)
+1. [Consistent Hashing](https://en.wikipedia.org/wiki/Consistent_hashing)
 
 2. 类似Consistency Hash的思想，采用固定数目的Slot，比如：[Redis Cluster](https://redis.io/topics/cluster-tutorial)
 
@@ -30,7 +30,7 @@ Shard对于scale out是个非常好的方案，而且是性能如果到达瓶颈
 
 ## 一般情况下，Shard应该是最后的解决手段
 
-软件学说里有一句名言：**再没有达到瓶颈Bottleneck时，不要随意优化Optimization**
+软件学说里有一句名言：**在没有达到瓶颈Bottleneck时，不要随意优化Optimization**
 
 类似地，我认为：**在一个Shard（无Shard）没有达到瓶颈Bottleneck时，不要轻易地分片Shard**
 
