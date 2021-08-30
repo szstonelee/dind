@@ -1,4 +1,4 @@
-# 从Raft角度看Half Master/Master
+# 从Raft角度看Half Master/Master(两层解耦)
 
 ## 什么是Half Master/Master
 
@@ -109,6 +109,10 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 2. 但State Machine Cluster就没有这些约束，只要它们依赖强一致的Log
 
+这是第一层解耦，即
+
+**State Machine被移出成为独立一层，从而让不受分布式强一致的代价的约束**
+
 ## 但是，构建Log强一致集群时，我们可以不用Raft，而用Kafka
 
 ```
@@ -125,6 +129,10 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 从上面这两个文章，我们知道，实现强一致Log的底层系统，用Kafka模式更好
 
+这是第二层解耦（从Kafka模式看），即
+
+**meta data，i.e., membership of cluster，被移出**
+
 ## Half Master/Master的好处
 
 1. 强一致的瓶颈，用了最小的负载，因为只涉及Log，而且是Kafka模式
@@ -138,3 +146,28 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 这样，就带来了第四点好处
 
 4. 我们避免了Shard的麻烦和Cost，包括Join和Distributed Transaction，从而提升了整个集群的性能
+
+## 两层解耦的意义
+
+首先，你要理解[分布式下一致性Consistency的代价cost](https://zhuanlan.zhihu.com/p/399639015)，再复习一次：
+
+1. 单点：（很多时候还是单线程）的cost和约束，从而无从scale-out
+2. 共识：也是一个很大的cost和约束
+
+### 第一层解耦的意义
+
+将State Machine解耦，从而让State Machine不受分布式一致性的约束，降低了cost
+
+而State Machine，相比Log，一般更复杂，做的事更多，更难优化
+
+### 第二层解耦的意义
+
+虽然Log作为data不能不受分布式一致性的约束，但我们再次针对做第二层解耦，从而让meta data分离处出去。
+
+这个meta data，就是membship of cluster，比如：谁是leader，谁是controller，哪个可以加入cluster，哪个可以离开cluster，维持HA所需要的最小的quorum。
+
+这将使Log as data并且保持分布式下强一致的代价cost和约束进一步降低。
+
+从而，让第一层解耦出来的下层强一致系统，进一步优化，提高效率。
+
+以上，就是两层解耦的真正意义，也是Half Master/Master的精髓。
