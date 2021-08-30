@@ -10,4 +10,5 @@
 | 忍耐度为2时磁盘/网络最小倍数 | 3倍 | 5倍 | [少就是多，多就是少](https://zhuanlan.zhihu.com/p/402990609) |
 | 单机磁盘写放大倍数 | 1 | 最少10(如果LSM树) | |
 | 第三方依赖 | Zookeeper(或Raft) | 全部自我实现 | [少就是多，多就是少](https://zhuanlan.zhihu.com/p/402990609) |
+| Membership管理模式 | 独裁（效率高）和最终民主 | 全程民主 | [少就是多，多就是少](https://zhuanlan.zhihu.com/p/402990609) |
 | 其他 | 还需进一步实现State Machine，但State Machine可以做到无单点限制 | 全部自我实现，但单点瓶颈过大 | [BunnyRedis](https://zhuanlan.zhihu.com/p/392646113)<br>[Kafka is Database](https://zhuanlan.zhihu.com/p/392645152)<br> [分布式下一致性Consistency的代价cost](https://zhuanlan.zhihu.com/p/399639015)<br>[少就是多，多就是少](https://zhuanlan.zhihu.com/p/402990609)
