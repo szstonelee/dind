@@ -1,4 +1,4 @@
-# 作为数据的Log （Log as dataset) 和 WAL的本质区分
+# 作为数据的Log和WAL的本质区分
 
 ## 问题的由来
 
