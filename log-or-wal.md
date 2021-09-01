@@ -26,13 +26,13 @@
 
 数据data如果用到WAL，则data需要落盘两次，一次到这个WAL对应的磁盘文件里（或文件组），一次到自己最后的dataset对应文件里（或文件目录）里。
 
-多个data在WAL文件里，磁盘存储位置是一个接一个，连续的，不方便查询；而多个data落到dataseta文件上，一般是不连续的，以其他的数据结构（如B+树或LSM树）存在，以方便查询。
+多个data在WAL文件里，磁盘存储位置是一个接一个，连续的，不方便查询；而多个data落到dataset文件上，一般是不连续的，以其他的数据结构（如B+树或LSM树）存在，以方便查询。
 
 **所以WAL是冗余的**。即如果使用了WAL，对应的data会落盘两次。如果不用WAL，则data只落盘一次。
 
 我们以[BunnyRedis](https://zhuanlan.zhihu.com/p/392646113)为例：
 
-请首先参考[BunnyRedis的结构图]((https://zhuanlan.zhihu.com/p/392652895)。
+请首先参考[BunnyRedis的结构图](https://zhuanlan.zhihu.com/p/392652895)。
 
 BunnyRedis，作为一个整体的系统，它是存在WAL的，因为数据落盘两次，一次是在Kafka里，一次是在bunny-redis下的RocksDB目录下。
 
