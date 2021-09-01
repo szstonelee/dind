@@ -56,13 +56,12 @@ Master/Master实际是不能保证强一致的，请参考下文
 
 2. 多机共识所带来的通信（和其他）的cost
 
-同样是参考上文，[分布式下一致性Consistency的代价cost](https://zhuanlan.zhihu.com/p/399639015)
-
 ## 从Raft角度看Half Master/Master
 
 Raft为实现强一致，也需要单点leader和多机共识，可以参考下图
 
 ```
+                            Raft
  ***********************            ***********************
  *     leader node     *            *     other nodes     *
  *                     *            *                     *
@@ -71,13 +70,14 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
  ***********************            ***********************
 ```
 
-假设我们如果只实现Log的强一致，或者State Machine就是Log Data本身，那么可以简化成下面的结构
+假设我们如果只实现Log的强一致，或者State Machine就是Log Data本身，那么上图可以简化成下图
 
 ```
+                              Raft
  *************************            *************************
  *      leader node      *            *      other nodes      *
  *                       *            *                       *
- *  only Replicated Log  *     ...    *  only Replicated Log  *
+ *  only Replicated Log  *    ...     *  only Replicated Log  *
  *************************            *************************
 ```
 
@@ -85,23 +85,28 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 [Kafka is Database](https://zhuanlan.zhihu.com/p/392645152)
 
-我们知道，通过Log，我们就能再次构建数据，也就是那个State Machine，见下图
+我们知道，通过Log，我们就能再次构建数据库，也就是那个State Machine，见下图
 
 ```
+                    Half Master/Master
+
 *********************                *********************
 *  Stete Machine 1  *                *  Stete Machine n  *
 *    (Database)     *       ...      *    (Database)     *
 *********************                *********************
 
+                       解耦Decouple
 
-                    ******************
-                    *   LOG cluster  *
-                    ******************
+                ****************************
+                *   only LOG Raft cluster  *
+                ****************************
 ```
 
-上面，就实现了Half Master/Master方式，而如果LOG是强一致，整个系统也是强一致
+上面，就实现了Half Master/Master方式，即State Machine cluster是Master/Master模式，但必须依赖非Master/Master的Log cluster。
 
-这个分离的目的，是为了让最下面那层LOG Cluster，所做的事情最小，
+如果LOG是强一致，整个系统也是强一致，i.e., 我们获得了一个强一致的Database。
+
+这个分离的目的，是为了让最下面那层LOG cluster，所做的事情最小，
 
 因为：
 
@@ -111,11 +116,13 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 这是第一层解耦，即
 
-**State Machine被移出成为独立一层，从而让不受分布式强一致的代价的约束**
+**State Machine被移出成为独立一层，从而让其免受分布式强一致的代价的约束**
 
-## 但是，构建Log强一致集群时，我们可以不用Raft，而用Kafka
+## 更进一步，构建Log强一致集群时，我们可以不用Raft，而用Kafka
 
 ```
+          可选两种模式构建受强一致约束的Log集群
+
 ****************                *****************
 * Raft For Log *       VS       * Kafka For Log *
 ****************                *****************
@@ -125,19 +132,19 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 1. [分布式思考：少就是多，多就是少](https://zhuanlan.zhihu.com/p/402990609)
 
-2. [Kafka模式对比纯Raft模式简表]()
+2. [Kafka模式对比纯Raft模式简表](https://zhuanlan.zhihu.com/p/405228466)
 
 从上面这两个文章，我们知道，实现强一致Log的底层系统，用Kafka模式更好
 
 这是第二层解耦（从Kafka模式看），即
 
-**meta data，i.e., membership of cluster，被移出**
+**meta data，i.e., membership of cluster，被移出成为独立一层**
 
 ## Half Master/Master的好处
 
 1. 强一致的瓶颈，用了最小的负载，因为只涉及Log，而且是Kafka模式
 
-2. 上层的Master/Master，也是强一致，这样就横向扩展scale-out关键的写Write
+2. 上层的Master/Master，也是强一致，这样就可以横向扩展(scale-out)关键的写Write
 
 3. 正因为扩展了Write，我们就可以不做或少做Shard
 
@@ -145,7 +152,7 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 这样，就带来了第四点好处
 
-4. 我们避免了Shard的麻烦和Cost，包括Join和Distributed Transaction，从而提升了整个集群的性能
+4. 我们避免了Shard的麻烦和Cost，包括Join和Distributed Transaction，从而在简化系统的基础上提升了整个集群的性能
 
 ## 两层解耦的意义
 
@@ -162,12 +169,12 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 ### 第二层解耦的意义
 
-虽然Log作为data不能不受分布式一致性的约束，但我们再次针对做第二层解耦，从而让meta data分离处出去。
+虽然Log作为data不能不受分布式一致性的约束，但我们再次针对Log做第二层解耦，让meta data分离出去。
 
 这个meta data，就是membship of cluster，比如：谁是leader，谁是controller，哪个可以加入cluster，哪个可以离开cluster，维持HA所需要的最小的quorum。
 
 这将使Log as data并且保持分布式下强一致的代价cost和约束进一步降低。
 
-从而，让第一层解耦出来的下层强一致系统，进一步优化，提高效率。
+从而，让第一层解耦出来的下层Log强一致基础系统，进一步优化，提高效率。
 
 以上，就是两层解耦的真正意义，也是Half Master/Master的精髓。
