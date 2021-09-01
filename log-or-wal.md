@@ -52,17 +52,17 @@ BunnyRedis，作为一个整体的系统，它是存在WAL的，因为数据落�
 
 如果你只想丢一点数据，一般设置是每秒fsync，这样，最多丢失1秒到2秒的数据，但性能相比上面的每次写WAL都fsync有很大的提升。一般而言，[Throughput](https://zhuanlan.zhihu.com/p/399883427)都有10倍的提升。
 
-而正因为WAL是快速落盘，所以dataset反而可以慢速落盘从而提高磁盘利用率。一般dataset落盘都是设置为操作系统后台方式，从时间上看，一般是分钟级（Linux OS实际算法很复杂，涉及很多参数）。
+而正因为WAL是快速落盘，所以dataset反而可以慢速落盘从而提高磁盘利用率。一般dataset落盘都是设置为操作系统后台方式，从时间上看，一般是分钟级（Linux的page cache的管理算法很复杂，涉及很多参数，但可以假定为是分钟级）。
 
 你当然可以设置WAL落盘也用操作系统后台写入的方式，但这也意味你可能丢失分钟级的数据，所以，这个做法几乎没有，因为失去了WAL的意义。
 
-所以，判断WAL还是Log as dataset，还有一个出发点，看落盘的时间的即时性。如果很快落盘，一般是WAL，如果不是，那一般是dataset。
+所以，判断data是WAL，还是dataset，还有一个出发点，看落盘的时间的即时性。如果很快落盘，一般是WAL，如果不是，那一般是dataset。
 
 所以，从这个角度看：
 
-Kafka的Log落盘是后台分钟级（当然，你可以配置改变）。所以，Log对于Kafka，是dataset，而不是WAL。
+Kafka的Log落盘是后台分钟级（当然，你可以改变配置）。所以，Log对于Kafka，是dataset，而不是WAL。
 
-bunny-redis的RocksDB落盘也是后台分钟级，同时bunny-redis里的RocksDB的WAL选项是关闭的。
+bunny-redis的RocksDB落盘也是后台分钟级，同时bunny-redis里的RocksDB根本就不写自身的WAL。
 
 ### 3. 落盘是否顺序(order or sequence)
 
@@ -82,9 +82,9 @@ Kafka写入的Log，是dataset；bunny-redis，它写入的RocksDB数据，也�
 
 是的，从这个角度看，BunnyRedis的WAL（即Kafka Log dataset）和其他数据库系统的WAL是有很大区别的。
 
-即BunnyRedis的WAL，从时序的角度看，只在内存上有保证。而不是磁盘上的保证。
+即BunnyRedis的WAL，从时序的角度看，只在内存上有保证。而不是在磁盘上的保证。
 
-但是，这个WAL，是多个Kafka机器上的内存上一致的保证，所以，我们不用担心一台机器crash，而丢失数据。
+但是，这个WAL（Kafka log dataset），是多个Kafka机器上的内存上一致的保证，所以，我们不用担心一台机器crash，而丢失数据。
 
 同时我们要注意，Log，它具备其他dataset不具备的一个特点，就是：Append Only。
 
