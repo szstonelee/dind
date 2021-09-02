@@ -116,7 +116,7 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 这是第一层解耦，即
 
-**State Machine被移出成为独立一层，从而让其免受分布式强一致的代价的约束**
+**State Machine被移出成为独立一层，只让Log受分布式强一致的代价的约束**
 
 ## 更进一步，构建Log强一致集群时，我们可以不用Raft，而用Kafka
 
@@ -146,13 +146,13 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 2. 上层的Master/Master，也是强一致，这样就可以横向扩展(scale-out)关键的写Write
 
-3. 正因为扩展了Write，我们就可以不做或少做Shard
+3. 正因为扩展了Write，我们就可能不做或少做Shard
 
 请参考：[分布式思考：我们需要分片Shard（含分库分表）吗？](https://zhuanlan.zhihu.com/p/403604353)
 
 这样，就带来了第四点好处
 
-4. 我们避免了Shard的麻烦和Cost，包括Join和Distributed Transaction，从而在简化系统的基础上提升了整个集群的性能
+4. 如果我们可以避免Shard，我们也就避免Shard的麻烦和Cost，包括Join和Distributed Transaction
 
 ## 两层解耦的意义
 

@@ -71,3 +71,37 @@ WAL还有另外一个作用，就是ACID中A的保证。因为data page并不能
 而且，Kafka依赖操作系统后台写入磁盘的速度，几乎等同于一般网络的Throughput，这个没有任何瓶颈。
 
 详细可参考Kafka官方说明：[Don't fear the filesystem!](https://kafka.apache.org/documentation/#design_filesystem)
+
+## 补：关系型数据库事务Transaction对于WAL的影响
+
+知乎网友提供了很多好想法，非常感谢。其中一个提到：WAL在关系型数据库中，有事务的功能，即要保证Atomic，要保证rollback。
+
+大家如果看这个文章，其核心思想是：
+
+**在分布式下，放弃单机的灾难恢复约束下的持久化要求，对于重复信息入盘可以不再考虑，因为集群另外一台机器可以弥补**
+
+这个想法里有两个关键点：
+
+1. 用于灾难恢复（crash recover）
+
+2. 用于重复信息（duplicated data or copy）
+
+在关系型数据库中，比如MySQL，其WAL除了灾难恢复外，还有事务Transaction的功能，要求Atomic保证，即All or Nothing，如果发生意外，可以rollback。
+
+如果进一步分类，包含两个，一个是redo，一个是undo。
+
+对于redo，我们完全可以按照这个文中的想法，不用入盘。因为，它符合上面两个关键点，用于灾难，而且重复，即它本质是冗余的。
+
+但是对于undo，我们不能这样做。因为undo并不完全是为crash灾难准备的，作为日常事务，我们可以在SQL语句中间，主动进行rollback。而且，它也不完全是一个copy（比如：MySQL里undo信息有时存的是SQL语句，而不是data）。
+
+但是，对于undo里面用于crash recover的部分，我们同样可以考虑不入盘，因为它符合上面两个关键点。我对undo在MySQL里的细节不熟悉，但我知道undo信息存在两个地方，其中一部分就在WAL中（包含在redo文件里）。
+
+所以，核心本质在于：
+
+1. 分布式条件下，将冗余的入盘拿掉，因为设定环境发生了改变，不是单机
+
+2. 尽可能减少磁盘操作这个大的cost（也就是减少持久化的约束），让事务过程大部分都发生在内存上
+
+这样做了，我们还是能保证关系数据库的事务功能
+
+
