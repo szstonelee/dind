@@ -36,13 +36,13 @@
 
 BunnyRedis，作为一个整体的系统，它是存在WAL的，因为数据落盘两次，一次是在Kafka里，一次是在bunny-redis下的RocksDB目录下。
 
-所以，站在BunnyRedis整个系统来看，Kafak里存的数据，就是WAL，而RocksDB里存的数据，就是dataset（或者叫State Machine）。
+所以，站在BunnyRedis整个系统来看，Kafka里存的数据，就是WAL，而RocksDB里存的数据，就是dataset（或者叫State Machine）。
 
 但是，BunnyRedis从结构层次上看，是两个子系统（而且都是集群），一个是Kafka集群，一个是bunny-redis集群。
 
 如果我们只看Kafka这个集群，而且根本不考虑bunny-redis集群，data只落盘一次，所以，Kafka没有WAL。但是，Kafka很特殊，它只处理Log数据，即dataset == Log。
 
-如果我们只看bunny-redis集群（尽管它必须依赖Kafka，并且把Kafka的数据当做它的WAL），它本身的存储，即RocksDB，并没有写两次（虽然RocksDB是支持自身WAL的，但可以关闭，而bunny-redis代码中是关闭RocksDB的自身的WAL）。所以，站在这个隔离的bunny-redis集群角度，bunny-redis是没有WAL的，只有dataset，是以LSM Tree的形态存储于磁盘上，以方便Redis命令的查询。
+如果我们只看bunny-redis集群（尽管它必须依赖Kafka，并且把Kafka的数据当做它的WAL），它本身的存储，即RocksDB，并没有落盘两次（虽然RocksDB是支持自身WAL的，但可以关闭，而bunny-redis代码中是关闭RocksDB的自身的WAL）。所以，站在这个隔离的bunny-redis集群角度，bunny-redis是没有WAL的，只有dataset，是以LSM Tree的形态存储于磁盘上，以方便Redis命令的查询。
 
 ### 2. 落盘的时间紧急度
 
@@ -56,7 +56,7 @@ BunnyRedis，作为一个整体的系统，它是存在WAL的，因为数据落�
 
 你当然可以设置WAL落盘也用操作系统后台写入的方式，但这也意味你可能丢失分钟级的数据，所以，这种做法几乎不存在，因为这失去了WAL的意义。
 
-所以，判断data是WAL，还是dataset，还有一个出发点，看落盘的时间的即时性。如果很快落盘，一般是WAL，如果不是，那一般是dataset。
+所以，判断落盘是WAL，还是dataset，还有一个出发点，看落盘的时间的即时性。如果很快落盘，一般是WAL，如果不是，那一般是dataset。
 
 所以，从这个角度看：
 
@@ -70,7 +70,7 @@ bunny-redis的RocksDB落盘也是后台分钟级，同时bunny-redis里的RocksD
 
 对于WAL，它应该保证落盘的时序，和数据产生的时序，是一致的，即t1时刻产生的WAL应该早于t2时刻产生的WAL落盘。
 
-但对于dataset，则没有这个强制要求。有可能t2时刻对应的dataset先落盘（或者部分先落盘，比如B+树里的部分page页）。
+但对于dataset，则没有这个强制要求。有可能t2时刻对应的dataset先落盘（或者部分先落盘，比如B+树里的部分dirt page页）。
 
 而如果你依赖操作系统的后台写入，它是不保证时序的，即操作系统眼里，page cache是其dataset。
 
@@ -82,7 +82,7 @@ Kafka写入的Log，是dataset；bunny-redis，它写入的RocksDB数据，也�
 
 是的，从这个角度看，BunnyRedis的WAL（即Kafka Log dataset）和其他数据库系统的WAL是有很大区别的。
 
-即BunnyRedis的WAL，从时序的角度看，只在内存上有保证。而不是在磁盘上的保证。
+即BunnyRedis的WAL，从时序的角度看，只在内存上有保证，而不是在磁盘上的保证。
 
 但是，这个WAL（Kafka log dataset），是多个Kafka机器上的内存上一致的保证，所以，我们不用担心一台机器crash，而丢失数据。
 
