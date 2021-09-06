@@ -117,7 +117,7 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 ## 更进一步，构建Log强一致集群时，不用Raft模式，而用Kafka模式
 
 ```
-          可选两种模式构建受强一致约束的Log集群
+          可选两种模式: 构建受强一致约束的Log集群
 
 ****************                *****************
 * Raft For Log *       VS       * Kafka For Log *
@@ -162,7 +162,7 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 虽然Log作为data不能不受分布式一致性的约束，但我们再次针对Log做第二层解耦，让meta data分离出去。
 
-这个meta data，就是membship of cluster，比如：谁是leader，谁是controller，哪个可以加入cluster，哪个可以离开cluster，维持HA所需要的最小的quorum。
+这个meta data，就是membership of cluster，比如：谁是leader，谁是controller，哪个可以加入cluster，哪个可以离开cluster，维持HA所需要的最小的quorum。
 
 这将使Log as data保持分布式下强一致的代价cost和约束进一步降低。
 
