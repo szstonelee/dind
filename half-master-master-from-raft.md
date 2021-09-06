@@ -26,7 +26,7 @@ Master/Master实际是不能保证强一致的，请参考下文
 
 里面有详细的分析，为什么Master/Master不能做到强一致。
 
-我们必须用一个强一致的**非Master/Master**先去达到强一致并作为底层，然后才可以再在其上，去构建必须依赖这个底层的上层的Master/Master，然后才能保证这个Master/Master的强一致。
+我们必须用一个强一致的**非Master/Master**先去达到强一致并作为底层，然后才可以再在其上，去构建必须依赖这个底层的上层的Master/Master，然后才能保证这个Master/Master组件的强一致。
 
 这就是**Half Master/Master**，即两层结构，下面一层是强一致的非Master/Master，然后基于它，再实现强一致的Master/Master上层。
 
@@ -40,7 +40,7 @@ Master/Master实际是不能保证强一致的，请参考下文
 从而可以达到整个系统的强一致，同时获得master/master的好处。
 ```
 
-## 从Raft角度实现H一个Half Master/Master
+## 从Raft角度实现一个Half Master/Master
 
 ### 预备知识
 
@@ -96,7 +96,7 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 *********************                *********************
 *  Stete Machine 1  *                *  Stete Machine n  *
-*    (Database)     *       ...      *    (Database)     *
+*    (Database)     *       ...      *  (same Database)  *
 *********************                *********************
 
                        解耦Decouple
@@ -114,7 +114,7 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 **State Machine被移出成为独立一层，只让Log受分布式强一致的代价的约束**
 
-## 更进一步，构建Log强一致集群时，我们可以不用Raft模式，而用Kafka模式
+## 更进一步，构建Log强一致集群时，不用Raft模式，而用Kafka模式
 
 ```
           可选两种模式构建受强一致约束的Log集群
@@ -152,11 +152,6 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 ## 两层解耦的意义
 
-首先，你要理解[分布式下一致性Consistency的代价cost](https://zhuanlan.zhihu.com/p/399639015)，再复习一次：
-
-1. 单点：（很多时候还是单线程）的cost和约束，从而无从scale-out
-2. 共识：也是一个很大的cost和约束
-
 ### 第一层解耦的意义
 
 将State Machine解耦，从而让State Machine不受分布式一致性的约束，降低了cost。
@@ -169,7 +164,7 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
 
 这个meta data，就是membship of cluster，比如：谁是leader，谁是controller，哪个可以加入cluster，哪个可以离开cluster，维持HA所需要的最小的quorum。
 
-这将使Log as data并且保持分布式下强一致的代价cost和约束进一步降低。
+这将使Log as data保持分布式下强一致的代价cost和约束进一步降低。
 
 从而，让第一层解耦出来的下层Log强一致基础系统，进一步优化，提高效率。
 
