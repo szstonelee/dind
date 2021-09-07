@@ -20,7 +20,7 @@ Half Master/Master是我创建的词，其是为解决下面的问题：
 
 ### 如何保证Master/Master的强一致
 
-Master/Master实际是不能保证强一致的，请参考下文
+纯粹的Master/Master实际是不能保证强一致的，请参考下文
 
 [BunnyRedis要解决Redis的一致性Consistency问题](https://zhuanlan.zhihu.com/p/392637293)
 
