@@ -231,13 +231,13 @@ Zookeeper有两种Read接口，一个是任意read，发送到cluster中的任�
 
 Zookeeper还有一个sync read，它是将read请求，只发送给leader，然后由leader根据自己机器的数据返回结果。
 
-我们知道，对于Zookkeeper，实际上，整个cluster，在某一个时刻，只有一个真正的leader存在。所以，看上去，好像Zookeeper的Sync Read接口是支持Linearizability。
+我们知道，对于Zookeeper，实际上，整个cluster，在某一个时刻，只有一个真正的leader存在。所以，看上去，好像Zookeeper的Sync Read接口是支持Linearizability。
 
 但实际不是这样。
 
 ### ZK不符合Linearizability的分析
 
-因为Zookkeper存在脑分裂（Brain Split）的可能，即某一个时刻，比如网络分割（network partitition）原因，原来的leader可能落在少数区（minor partition），而在大多数区（major partition）发生了选举，选出了新的leader。这样，在某一个时刻，就可能发生脑裂，即两个node都认为自己是leader。
+因为Zookeeper存在脑分裂（Brain Split）的可能，即某一个时刻，比如网络分割（network partition）原因，原来的leader可能落在少数区（minor partition），而在大多数区（major partition）发生了选举，选出了新的leader。这样，在某一个时刻，就可能发生脑裂，即两个node都认为自己是leader。
 
 这时，如果在major partition发生了Write，那么这个Write是可以成功的。
 
