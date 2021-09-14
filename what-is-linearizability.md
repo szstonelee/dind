@@ -209,5 +209,32 @@ Client:      Write(R=1)      Read(R)        R=1        Read(R)
 
 如果cluster是Linearizability，它就好像只有一份数据。虽然t1时刻的Write，我们不知道是否成功以及何时成功，但t4时刻的Read Response，已经告诉我们，旧值(R=0)不存在了，所以，t5时刻的Read，一定读到新值，因为看上去，只有一份数据，不管这个Read请求，是发给A，or B，or C的。
 
+## 分析：Zookeeper的Sync Read为什么不是c
 
+### Zookeeper的sync read实现原理
 
+Zookeeper有两种Read接口，一个是任意read，发送到cluster中的任何一个node，然后这个node，根据本地的数据存储，返回结果给客户端。这个显然不是Linearizability，因为每个node在某一个时刻，是无法保证数据完全一致的。
+
+Zookeeper还有一个sync read，它是将read请求，发送给leader，这样，实际上，整个cluster，在某一个时刻，只有一个真正的leader。所以，看上去，好像Zookeeper的Sync Read接口，好像是支持Linearizability。
+
+但实际不是这样。
+
+### ZK不符合Linearizability分析
+
+因为Zookkeper存在闹分裂（Brain Split）的可能，即某一个时刻，比如网络分离（network partitition）原因，原来的leader可能落在少数区（minor partition），而在大多数区（major partition）发生了选举，选出了新的leader。这样，在某一个时刻，就可能发生脑裂，即两个node都认为自己是leader。
+
+这时，如果在major partition发生了Write，那么这个Write是可以成功的。
+
+这也就意味着，存在两份数据，一份在major partition，由新的leader读取；一份在minor partition，由旧的leader读取。
+
+那么，这就不符合Linearizability的第二个要求；看上去像一份数据：Seems like one copy of data
+
+## 分析：etcd的read为什么是Linearizability
+
+和上面Zookeeper不同的是，etcd的Read，必须得到整个cluster里大部分node的同意，即走的是Raft协议。
+
+如果我们每次读，都是整个集群里大部分node同意的data，这也就意味，独此一份。
+
+即你不可能，在某个时刻，读出两份不同的数据，而且是被集群大部分node所认可的。
+
+参考上面的ZK案例，类似地，etcd一样存在Brain Split，即某个时刻，有两个node都认为自己是leader。但是，如果你到minor partition里的leader去读，它无法获得大部分的反馈信息，而只有到major partition那个新选的leader去读，才能获得大部分node的认可。i.e., it seems like one copy of data。
