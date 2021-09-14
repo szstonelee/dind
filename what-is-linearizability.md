@@ -91,6 +91,8 @@
 
 记住上面那两个要点，特别是Seems like one copy of data这个保证，我们用具体的案例来分析什么样的系统，符合Linearizability
 
+以下案例中: 如果 i 小于 j，则ti时刻 早于 tj时刻，i.e., if i < j, then ti < tj
+
 ### 案例一
 
 ```
@@ -104,7 +106,9 @@ Client:    Write(R=1) to A    OK Response from A    Read(R) from B
 
 说明：
 
-node A 和 node B 组成cluster，它们有一个初值R=0。客户Client，在时刻t1向node A发出一个写命令，设置R=1，然后t2时刻，收到A返回的成功（OK）消息，接着t3时刻，向B发出读R命令，请问，如果cluster是Linearizability，那么读到的R是是什么值?
+node A 和 node B 组成cluster，它们有一个初值R=0。客户Client，在时刻t1向node A发出一个写命令，设置R=1，然后t2时刻，收到A返回的成功（OK）消息，接着t3时刻，向B发出读R命令，
+
+请问，如果cluster是Linearizability，那么读到的R是是什么值?
 
 分析：
 
@@ -122,6 +126,8 @@ Client:       Write(R=1)         OK Response         Read(R)
 
 很显然，答案应该是1。
 
+因为，如果只有一个node，只有一份数据；那么写完Write并返回OK成功后，再读取，必然是新数据1，而不是旧数据0。
+
 ### 案例二
 
 ```
@@ -135,7 +141,9 @@ Client:    Write(R=1) to A        Read(R) from B
 
 问题变化：
 
-和上图不一样的地方，t1发出Write命令到A，但没有等到Response，就在后面的t3时刻发出Read R到B。如果cluster是Linearizability，那么读到的R是什么？
+和上图不一样的地方，t1发出Write命令到A，但没有等到Response（t2时刻根本不存在），就在后面的t3时刻发出Read R到B。
+
+如果cluster是Linearizability，那么读到的R是什么？
 
 答案：
 
@@ -162,7 +170,7 @@ Client:          Write(R=1)                  Read(R)
 
 如果t3时刻发出的Read TCP包晚于t1时刻发出的Write TCP包到达这个virtual node，那么读出的数据就是1。
 
-因此，答案就是：读到的R的值，可能是0，也可能是1，取决于Write和Read命令TCP包到达集群并生效的先后。
+因此，答案就是：读到的R的值，可能是0，也可能是1，取决于Write和Read命令TCP包到达集群并生效的时间先后而不是TCP包发出的先后。
 
 ### 案例三
 
@@ -177,15 +185,15 @@ Client:    Write(R=1) to A     Read(R) from B   response R=1 from B     Read(R) 
 
 问题变化：
 
-和案例三相比，我们的cluster变成了三个节点（初始值R=0）。t1时刻还是Write(R=1)到A，但没有收到Write的Response，就在t3时刻发出Read(R)到B，然后在t4时刻，B返回了Read结果是R=1。在仍没有收到Write的返回结果时，在t5发出Read(R)命令到C，
+和案例二相比，我们的cluster变成了三个节点（初始值R=0）。t1时刻还是Write(R=1)到A，但没有收到Write的Response，就在t3时刻发出Read(R)到B，然后在t4时刻，B返回了Read结果是R=1。在仍没有收到Write的返回结果时，在t5发出Read(R)命令到C，
 
-请问，如果clusster是Linearizability，那么我们从C读到的值是什么？
+请问，如果cluster是Linearizability，那么我们从C读到的值是什么？
 
 * 答案选项甲：肯定是0
-* 答案选项已：肯定是1
+* 答案选项乙：肯定是1
 * 答案选项丙：有可能是0，也有可能是1
 
-正确答案是：已，即肯定是1
+正确答案是：乙，即肯定是1
 
 分析:
 
@@ -199,7 +207,7 @@ Client:    Write(R=1) to A     Read(R) from B   response R=1 from B     Read(R) 
 Client:      Write(R=1)      Read(R)        R=1        Read(R)
 ```
 
-如果clusster是Linearizability，它就好像只有一份数据。虽然t1时刻的Write，我们不知道是否成功以及何时成功，但t4时刻的Read Response，已经告诉我们，旧值(R=0)不存在了，所以，t5时刻的Read，一定读到新值，因为看上去，只有一份数据，不管这个Read请求，是发给A，or B，or C的。
+如果cluster是Linearizability，它就好像只有一份数据。虽然t1时刻的Write，我们不知道是否成功以及何时成功，但t4时刻的Read Response，已经告诉我们，旧值(R=0)不存在了，所以，t5时刻的Read，一定读到新值，因为看上去，只有一份数据，不管这个Read请求，是发给A，or B，or C的。
 
 
 
