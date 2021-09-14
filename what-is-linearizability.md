@@ -1,8 +1,8 @@
 # 什么是线性一致性Linearizability
 
-## 核心要点
+## 核心约束
 
-只有两个
+只有满足下面的两个约束（或者说条件），我们就认为一个系统是符合Linearizability
 
 1. Atomic：原子性
 
@@ -14,9 +14,9 @@
 
 计算机文档中难过，有很多地方，我们都见过原子性Atomic这个词，它的基本语义就是：All or Nothing。即对于某个动作Action（或一连串动作组合成一个更大的超级动作），它的效果是：要么都做了，要么什么都没有做，不会有中间状态。
 
-举个例子：银行转账
+举个例子：银行转账，必须是Atomic
 
-一个账户A有人民币100元，另外一个账户B有人民币100元，然后进行一个动作：将A的钱转20元到B账户上。
+一个账户A有人民币100元，另外一个账户B有人民币100元，然后定义转账动作：将A的钱转20元到B账户上。
 
 实际操作中，先从账户A减掉20元，这样A变成了80元(Write 80 to A)，然后，再向B账户加上这20元，这样B账户变成120元(Write 120 to B)。最后给这个动作的请求客户返回结果是成功转账消息。
 
@@ -55,25 +55,25 @@
 1. 起始状态，A=100, B=100
 2. 结束状态，A=80, B=120
 
-这也是为什么我们在讨论K/V系统时，都去谈右边的一致性（比如：[BunnyRedis的一致性](https://zhuanlan.zhihu.com/p/392653517)），因为Key/Value，基本操作都是针对一个key，根本就没有Partial State。我们当然不需要考虑左边的Transactionn，因为那个是针对的中间状态及其中间状态互相影响的场景。
+这也是为什么我们在讨论K/V系统时，都去谈右边的一致性（比如：[BunnyRedis的一致性](https://zhuanlan.zhihu.com/p/392653517)），因为Key/Value，大部分基本操作都是针对一个key，根本就没有Partial State。
 
 #### Atomic结论
 
-对于Linearizability的Atomic，我们只考虑动作前的状态，和动作结束后的状态，我们认为不存在中间状态。
+对于Linearizability的Atomic，我们只考虑动作前的状态，和动作结束后的状态，我们认为不存在（或者假装看不到）中间状态。
 
-如果是Key/Value系统，它天然的是没有中间状态；
+如果是Key/Value系统而且只针对一个key，它天然的是没有中间状态；
 
 但如果对于转账这种涉及多个key的动作，请你把多个key看成一个大的key，即：
 
 大Key = A账户 和 B账户 的联合
 
-它只有两个状态，账前是：（A=100, B=100），转账后是：（A=80, B=120）
+它只有两个状态，转账前是：（A=100, B=100），转账后是：（A=80, B=120）
 
 ### 看上去像一份数据：Seems like one copy of data
 
-所谓Seems like oone copy of data，是因为在一个集群clusster里，有多个机器nodes组成，每个node都握有一份最终一样（Eventually Consistency）的数据。即数据data有多个拷贝copy，它分布在一个集群中的不同的node上。
+所谓Seems like one copy of data，是因为在一个集群clusster里，有多个机器nodes组成，每个node都握有一份最终一样（Eventually Consistency）的数据。即数据data有多个拷贝copy，它分布在一个集群中的不同的node上。
 
-但是，我们在用到这个Linearizability集群时，我们要看上去，好像只有一份数据。即我们可能访问多个node的多个copy，但我们看上去，好像只访问了一个node的一份copy。
+但是，我们在用到这个支持Linearizability集群时，我们要看上去，好像只有一份数据。即实际上，我们可能访问多个node的多个copy，但效果上，和只访问了一个node的一份copy没有任何区别。
 
 这又是一个和上面那个一致模型图中左边Transaction极其不同的地方。
 
@@ -87,32 +87,38 @@
 
 **多个node上的多份copy，实际使用时，和一个node上一份数据，在一致性方面，没有什么不同**
 
+下面让我们用几个案例，具体看，会更清晰。
+
 ## 案例分析
 
-记住上面那两个要点，特别是Seems like one copy of data这个保证，我们用具体的案例来分析什么样的系统，符合Linearizability
+记住最上面那两个约束，特别是Seems like one copy of data这个保证，我们用具体的案例来分析什么样的系统，符合Linearizability
 
-以下案例中: 如果 i 小于 j，则ti时刻 早于 tj时刻，i.e., if i < j, then ti < tj
+以下案例中: 
+
+1. 如果 i 小于 j，则 ti 时刻 早于 tj 时刻，i.e., if i < j, then ti < tj
+
+2. 我们的集群里的数据，就是一个R（可以理解为Register，它可能是一个key，也可能是一个row，也可能是一个文档），其初值为统一的0
 
 ### 案例一
 
 ```
-        ****************            ****************
-        * node A (R=0) *            * node B (R=0) *
-        ****************            ****************
+            ****************              ****************
+            * node A (R=0) *              * node B (R=0) *
+            ****************              ****************
 
- time:           t1                   t2                  t3
-Client:    Write(R=1) to A    OK Response from A    Read(R) from B
+ time:           t1                     t2                     t3
+Client:    Write(R=1) to A    Write OK Response from A    Read(R) from B
 ```
 
 说明：
 
-node A 和 node B 组成cluster，它们有一个初值R=0。客户Client，在时刻t1向node A发出一个写命令，设置R=1，然后t2时刻，收到A返回的成功（OK）消息，接着t3时刻，向B发出读R命令，
+node A 和 node B 组成cluster，它们有一个初值R=0。客户Client，在时刻t1向node A发出一个写命令，设置R=1，然后t2时刻，收到A返回的Write成功（OK）消息，接着t3时刻，向B发出读R命令，
 
 请问，如果cluster是Linearizability，那么读到的R是是什么值?
 
 分析：
 
-将上面两个node，虚拟成一个copy of data（即R），如下图
+将上面两个node，虚拟成一个copy of data（即只有一个虚拟R），如下图
 
 
 ```
@@ -120,8 +126,8 @@ node A 和 node B 组成cluster，它们有一个初值R=0。客户Client，在�
                * one virtual node for one copy of data *            
                *****************************************           
 
- time:           t1                   t2               t3
-Client:       Write(R=1)         OK Response         Read(R)
+ time:           t1                   t2                   t3
+Client:       Write(R=1)       Write OK Response         Read(R)
 ```
 
 很显然，答案应该是1。
@@ -131,12 +137,12 @@ Client:       Write(R=1)         OK Response         Read(R)
 ### 案例二
 
 ```
-  ****************            ****************
-  * node A (R=0) *            * node B (R=0) *
-  ****************            ****************
+            ****************               ****************
+            * node A (R=0) *               * node B (R=0) *
+            ****************               ****************
 
- time:           t1                    t3
-Client:    Write(R=1) to A        Read(R) from B
+ time:           t1                               t3
+Client:    Write(R=1) to A                  Read(R) from B
 ```
 
 问题变化：
@@ -189,9 +195,9 @@ Client:    Write(R=1) to A     Read(R) from B   response R=1 from B     Read(R) 
 
 请问，如果cluster是Linearizability，那么我们从C读到的值是什么？
 
-* 答案选项甲：肯定是0
-* 答案选项乙：肯定是1
-* 答案选项丙：有可能是0，也有可能是1
+* 甲：肯定是0
+* 乙：肯定是1
+* 丙：有可能是0，也有可能是1
 
 正确答案是：乙，即肯定是1
 
@@ -209,25 +215,27 @@ Client:      Write(R=1)      Read(R)        R=1        Read(R)
 
 如果cluster是Linearizability，它就好像只有一份数据。虽然t1时刻的Write，我们不知道是否成功以及何时成功，但t4时刻的Read Response，已经告诉我们，旧值(R=0)不存在了，所以，t5时刻的Read，一定读到新值，因为看上去，只有一份数据，不管这个Read请求，是发给A，or B，or C的。
 
-## 分析：Zookeeper的Sync Read为什么不是c
+## 分析：Zookeeper的Sync Read为什么不是Linearizability
 
 ### Zookeeper的sync read实现原理
 
 Zookeeper有两种Read接口，一个是任意read，发送到cluster中的任何一个node，然后这个node，根据本地的数据存储，返回结果给客户端。这个显然不是Linearizability，因为每个node在某一个时刻，是无法保证数据完全一致的。
 
-Zookeeper还有一个sync read，它是将read请求，发送给leader，这样，实际上，整个cluster，在某一个时刻，只有一个真正的leader。所以，看上去，好像Zookeeper的Sync Read接口，好像是支持Linearizability。
+Zookeeper还有一个sync read，它是将read请求，只发送给leader，然后由leader根据自己机器的数据返回结果。
+
+我们知道，对于Zookkeeper，实际上，整个cluster，在某一个时刻，只有一个真正的leader存在。所以，看上去，好像Zookeeper的Sync Read接口，好像是支持Linearizability。
 
 但实际不是这样。
 
 ### ZK不符合Linearizability分析
 
-因为Zookkeper存在闹分裂（Brain Split）的可能，即某一个时刻，比如网络分离（network partitition）原因，原来的leader可能落在少数区（minor partition），而在大多数区（major partition）发生了选举，选出了新的leader。这样，在某一个时刻，就可能发生脑裂，即两个node都认为自己是leader。
+因为Zookkeper存在脑分裂（Brain Split）的可能，即某一个时刻，比如网络分离（network partitition）原因，原来的leader可能落在少数区（minor partition），而在大多数区（major partition）发生了选举，选出了新的leader。这样，在某一个时刻，就可能发生脑裂，即两个node都认为自己是leader。
 
 这时，如果在major partition发生了Write，那么这个Write是可以成功的。
 
-这也就意味着，存在两份数据，一份在major partition，由新的leader读取；一份在minor partition，由旧的leader读取。
+这也就意味着，存在两份数据，一份新的数据，在major partition，由新的leader读取；一份旧的数据（不含这个Write），在minor partition，由旧的leader读取。
 
-那么，这就不符合Linearizability的第二个要求；看上去像一份数据：Seems like one copy of data
+那么，这就不符合Linearizability的约束和保证；看上去像一份数据，Seems like one copy of data
 
 ## 分析：etcd的read为什么是Linearizability
 
@@ -237,4 +245,4 @@ Zookeeper还有一个sync read，它是将read请求，发送给leader，这样�
 
 即你不可能，在某个时刻，读出两份不同的数据，而且是被集群大部分node所认可的。
 
-参考上面的ZK案例，类似地，etcd一样存在Brain Split，即某个时刻，有两个node都认为自己是leader。但是，如果你到minor partition里的leader去读，它无法获得大部分的反馈信息，而只有到major partition那个新选的leader去读，才能获得大部分node的认可。i.e., it seems like one copy of data。
+参考上面的ZK案例，类似地，etcd一样存在Brain Split，即某个时刻，有两个node都认为自己是leader。但是，如果你到minor partition里的leader去读，它无法获得大部分认可（因此就根本读不出），而只有到major partition那个新选的leader去读，才能获得大部分node的认可。i.e., it seems like one copy of data。
