@@ -18,9 +18,9 @@
 
 一个账户A有人民币100元，另外一个账户B有人民币100元，然后进行一个动作：将A的钱转20元到B账户上。
 
-这个对于银行来说，必须是原子性，即实际操作中，先从账户A减掉20元，这样A变成了80元，然后，再向B账户加上这20元，这样B账户变成120元。然后给这个动作的请求客户返回结果是成功。但如果中间发生意外，比如：账户A在建行，账户B在农行，正好转账时两个银行的网络发生了故障，那么这个动作必须返给请求客户失败的信息，而且两个账户的钱必须和转账前是一致的，即All or Nothing里的Nothing。
+这个对于银行来说，必须是原子性，即实际操作中，先从账户A减掉20元，这样A变成了80元，然后，再向B账户加上这20元，这样B账户变成120元。然后给这个动作的请求客户返回结果是成功。但如果中间发生意外，比如：账户A在建行，账户B在农行，正好转账时两个银行的网络发生了故障，那么这个动作必须返给请求客户失败的信息，而且两个账户的钱必须和转账前是一致的，即A和B还是100元。
 
-在上面的转账过程中，实际有3个状态
+在上面的转账过程中，在某一个时刻，实际账户A和B，可能是下面3个状态之一
 
 1. A=100, B=100
 2. A=80, B=100
@@ -30,7 +30,9 @@
 
 **不管发生任何异常，最终结果，不允许出现中间状态Partial State**
 
-#### Linearizability中Atomic的不同点
+即对于这个例子，银行转账系统不允许出现A是80元，B是100元的中间状态，那样就是银行吞没了客户的20元，是犯罪。
+
+#### Linearizability中Atomic对比事务Transaction中Atomic的不同点
 
 我们知道，在数据库中还有一个事务Transaction，它的要求也有Atomic。
 
@@ -38,20 +40,20 @@
 
 一致性Model: ![Alt Text](https://jepsen.io/consistency/models/map.svg)
 
-这个图中，左半边是关于Transaction的，右半部是关于非Transaction的，它们都用到了Atomic这个词，那么它们有什么不同？
+这个图中，左半边是关于Transaction的，右半部（顶端就是Linearizability or Linearizable）是关于非Transaction的，它们都用到了Atomic这个词，那么它们有什么不同？
 
-在讨论Linearizability时，或者说，上图中左半部（Transaction）和右半部（非Transaction），对于Atomic的中间状态Partial State，其差异在于：
+在讨论Linearizability时，或者更广义地说，上图中左半部（Transaction）和右半部（非Transaction），对于Atomic的中间状态Partial State，其差异在于：
 
-1. 左边Transaction是关注这个Partial State，即承认这个Partial State，并重点研究这个Partial State所带来的影响，以及相关保证（Guarantee）
+1. 左边部分，Transaction，核心关注点就是这个Partial State，即承认这个Partial State，并重点研究这个Partial State所带来的相互影响，以及各种Isolation下，对于这个影响所做的相关保证（Guarantee）
 
-2. 右边非Transactiion，是忽略这个Partial State，即认为这个Partial State没有任何影响，分析问题时，根本就不考虑这个中间状态。
+2. 右边部分，非Transactiion，是忽略这个Partial State，即认为这个Partial State没有任何影响，分析问题时，根本就不考虑这个中间状态。然后在这个基本态度下，看各个一致性模型所做出的各种保证（Guarantee）
 
-所以，分析Linearizability时，对于转账这个Atomic动作，我们认为只需要考虑两个状态：
+所以，分析Linearizability时，对于上面转账这个案例，我们认为只需要考虑两个状态：
 
 1. 起始状态，A=100, B=100
 2. 结束状态，A=80, B=120
 
-这也是为什么我们在讨论K/V系统时，都去谈右边的一致性（比如：BunnyRedis），因为Key/Value，基本操作都是针对一个key，根本就没有Partial State。我们当然不需要考虑左边的Transactionn，因为那个是针对的中间状态及其中间状态互相影响的场景。
+这也是为什么我们在讨论K/V系统时，都去谈右边的一致性（比如：[BunnyRedis的一致性](https://zhuanlan.zhihu.com/p/392653517)），因为Key/Value，基本操作都是针对一个key，根本就没有Partial State。我们当然不需要考虑左边的Transactionn，因为那个是针对的中间状态及其中间状态互相影响的场景。
 
 #### Atomic结论
 
