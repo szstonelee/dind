@@ -114,11 +114,11 @@ Half Linearizability就是参考了上面Linearizability集群的极端两个例
 
 **switch to other node like a new baby**
 
-### 方案二；snapshot
+### 方案二：snapshot
 
 类似上面的极端例子，集群数据只有read-only data时，集群是Linearizability。
 
-我们假设现在集群数据是可变的，但是，提供snapshot，而且，对于某一版本的snapshot，所有集群的数据都是完全一样的。
+我们假设现在集群数据是可变的，但是，提供snapshot，而且，对于某一版本的snapshot，集群所有node的数据都是完全一样的。
 
 这时，如果客户端Client去读数据时，带入snapshot版本参数，那么，这时，还是符合Linearizability。而且，Client可以任意切换node。
 
@@ -132,13 +132,13 @@ Half Linearizability就是参考了上面Linearizability集群的极端两个例
 
 等到版本5的数据到来，因为根据最终一致性的约束，Node B最终会出现这个版本5的数据。
 
-#### 如果等不到某版本数据怎么办？
+#### 如果很长时间等不到某版本数据怎么办？
 
 比如：上面这个例子中，Node B被Network Partition了，无法更新最新的版本5数据。
 
 方法是：Timeout and Retry
 
-设置一个Timeout时间，到时仍不能更新，那么切换node，到集群里其他node去找这个新版本数据，只到找到（或永远找不到，比如：版本号错误）
+设置一个Timeout时间，到时仍不能更新，那么切换node，到集群里其他node去找这个新版本数据，直到找到（或永远找不到，比如：版本号错误）
 
 ## Half Linearizability总结
 
@@ -149,5 +149,9 @@ Half Linearizability并不是完整的线性一致性Linearizability，或者更
 1. 要么sticky to one onde in cluster
 
 2. 要么bound to one snapshot for every node in cluster
+
+附：Half Linearizability和Half Master/Master
+
+都是我创建的词汇，想了解Half Master/Master，参考：[从Raft角度看Half Master/Master(两层解耦)](https://zhuanlan.zhihu.com/p/407603154)
 
 
