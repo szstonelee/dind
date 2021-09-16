@@ -15,3 +15,5 @@ think Different IN Distributed system.
 * [Kafka模式对比纯Raft模式简表](kafka-vs-raft.md)
 * [作为数据的Log和WAL的本质区分](log-or-wal.md)
 * [从Raft角度看Half Master/Master(两层解耦)](half-master-master-from-raft.md)
+* [什么是线性一致性Linearizability](what-is-linearizability.md)
+* [用Half Linearizability去破解线性一致性(Linearizability)的性能瓶颈](half-linearizability.md)
