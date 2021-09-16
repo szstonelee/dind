@@ -48,7 +48,7 @@
 
 1. Atomic
 
-2. Seems like one copy of data （Acutally it has only one copy of data）
+2. Seems like one copy of data （Actually it has only one copy of data）
 
 请问，这个系统有瓶颈吗？
 
@@ -66,7 +66,7 @@
 
 1. Atomic
 
-2. Seems like one copy of data （Acutally they are same copies of one imumutable data）
+2. Seems like one copy of data （Actually they are same copies of one immutable data）
 
 请问，这个系统有瓶颈吗？
 
@@ -146,7 +146,7 @@ Half Linearizability并不是完整的线性一致性Linearizability，或者更
 
 其要点在两个：
 
-1. 要么sticky to one onde in cluster
+1. 要么sticky to one node in cluster
 
 2. 要么bound to one snapshot for every node in cluster
 
