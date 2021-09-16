@@ -52,13 +52,13 @@
 
 请问，这个系统有瓶颈吗？
 
-对于单机，可以说是，也可以说不是，因为只有一台机器
+对于单点瓶颈，可以说有，也可以说没有，因为只有一台机器
 
 对于共识，没有（一台机器唯我独尊，不存在商量、讨论、协商、一致的问题）
 
-### 特例二：如果集群是多台机器，但数据是只读的
+### 特例二：如果集群是多台机器，但数据是只读imumutable的
 
-假设我们集群不限制于一台机器node，而是多台，所以我们有多个一样的数据copy在每个node上，然后，我们设定这个数据从此不变了，
+假设我们集群不限制于一台机器node，而是多台，所以我们有多个一样的数据copy在每个node上，然后，我们假定这个数据从此不变了，
 
 请问：它是不是Linearizability？
 
@@ -82,7 +82,7 @@ Half Linearizability就是参考了上面Linearizability集群的极端两个例
 
 类似上面的集群只有一台机器，我们的集群系统虽然有多台系统，但是，客户端只允许绑定集群一台机器。
 
-那么假设：集群是写强一致的，那么读是否是强一致？
+那么假设：集群是写强一致的，那么对于这个客户，读是否是强一致？
 
 答案：当然是的。
 
@@ -150,8 +150,8 @@ Half Linearizability并不是完整的线性一致性Linearizability，或者更
 
 2. 要么bound to one snapshot for every node in cluster
 
-附：Half Linearizability和Half Master/Master
+附：Half Linearizability和Half Master/Master，
 
-都是我创建的词汇，想了解Half Master/Master，参考：[从Raft角度看Half Master/Master(两层解耦)](https://zhuanlan.zhihu.com/p/407603154)
+都是我创建的词汇，里面都有Half这个怪词，用于某些特殊的设计模式或方案。想了解Half Master/Master，参考：[从Raft角度看Half Master/Master(两层解耦)](https://zhuanlan.zhihu.com/p/407603154)
 
 
