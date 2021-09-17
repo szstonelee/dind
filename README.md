@@ -17,3 +17,4 @@ think Different IN Distributed system.
 * [从Raft角度看Half Master/Master(两层解耦)](half-master-master-from-raft.md)
 * [什么是线性一致性Linearizability](what-is-linearizability.md)
 * [用Half Linearizability去破解线性一致性(Linearizability)的性能瓶颈](half-linearizability.md)
+* [分布式思考：最好不要用CAP去分析问题](no-cap.md)
