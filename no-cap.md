@@ -52,7 +52,7 @@ Partition，不能是简单地crash系统。
 
 ## 故意等待一个足够长的时间
 
-根据上面的修正，我再做一个处理，我让数据包一直retry（比如：TCP重发或重连重发），直到网络恢复（比如：人工检修，一周后恢复网络正常通信），然后集群的数据得到同步，而等待网络数据包的时间，我不认为系统是不有效的（Available），只不过系统是慢了点而已（即使慢一周也可以）。
+根据上面的修正，我再做一个处理，我让数据包一直retry（比如：TCP重发或重连重发），直到网络恢复（比如：人工检修，一周后恢复网络正常通信），然后集群的数据得到同步，而等待网络数据包的时间（当然，客户也得跟着等），我不认为系统是不有效的（Available），只不过系统是慢了点而已（即使慢一周也可以）。
 
 上面这个做法，又破坏了CAP的金身。
 
@@ -68,7 +68,7 @@ Partition，不能是简单地crash系统。
 
 ## Write Follow Reads
 
-好，我再次搭建一个分布式系统，为了大家易懂，我用两台MySQL作为集群的节点，然后，客户端只写入Key/Value，其中Key是UUID。然后任意选择某个MySQL进行读写。
+好，我再次搭建一个分布式系统，为了大家易懂，我用两台MySQL作为集群的节点，然后，客户端只写入Key/Value，其中Key是UUID，可以任意选择某个MySQL进行读写。
 
 然后，这两台机器后台通过binlog进行数据同步。
 
@@ -102,7 +102,7 @@ Once you’ve read something, you can’t change that read’s past.
 另外一个客户（Session），可以先读到w2，然后再读到w1
 ```
 
-显然，上面这个不一致，对于上面的这个MySQL分布式系统是不可能出现的。也就是说，在Network Parititoin时，上面这个分布式系统，即继续提供了服务（保持了Availability），同时也保证了一致性Write Follow Reads。
+显然，上面这个不一致，对于上面的这个MySQL分布式系统是不可能出现的。也就是说，在Network Parititoin时，上面这个分布式系统，继续提供了服务（保持了Availability），同时也保证了一致性Write Follow Reads。
 
 这是不是打脸CAP？
 
@@ -123,7 +123,9 @@ CAP中的C，Consistenccy，仅限于一致性模型中的Linerizability，即�
 于是，我们又得对CAP再做一个修正案
 
 ```
-CAP里的Availability，不是针对一个Partition而言，而是要求所有的Partition
+CAP里的Availability，不是针对整个系统而言（用一个可以工作的Partition代表整个系统），
+
+而是要求所有的Partition都必须Available and Consistent
 ```
 
 ## 审视经过多重修正案修正的CAP
@@ -140,7 +142,7 @@ CAP里的Availability，不是针对一个Partition而言，而是要求所有�
 
 请问，这样的修正后的CAP，还有实际意义吗？
 
-即CAP是针对理论上一个极其狭小的范围，从工程角度，没有意义
+即CAP是针对一个极其狭小的范围的理论论证，从工程角度，没有意义。
 
 ## 我们该如何用CAP的思想
 
@@ -150,14 +152,14 @@ CAP里的Availability，不是针对一个Partition而言，而是要求所有�
 
 1. Cost。我们需要多加几倍的机器，才能保证一台机器crash，整个系统还继续运作
 
-2. Performance。我们是否降低了性能，比如，为了一种性，我们需要考虑单点瓶颈和共识通信
+2. Performance。我们是否降低了性能，比如，为了一致性，我们是否需要考虑单点瓶颈和共识通信
 
 3. Complexity。我们是否复杂了整个系统设计，比如：cluster membership的管理
 
 所以，我的建议是：
 
 ```
-用核心思想，Trade Off，讨论你的分布式系统
+用核心思想，Trade Off，讨论你的分布式系统。
 
 讨论Trade Off时，老老实实分析任何一个得失。
 
