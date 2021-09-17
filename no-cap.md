@@ -2,7 +2,7 @@
 
 ## 前言
 
-在很多分布式问题分析中，一些作者喜欢先介绍CAP或用CAP这个词开篇。作为一个广泛使用的大词（Buzzword），CAP并不是一个很适合分析分布式的工具或词汇，它存在很多自身的问题，下面为你做详细的剖析。
+在很多分布式问题分析中，有人喜欢先介绍CAP或用CAP这个词开篇。作为一个广泛使用的大词（Buzzword），CAP并不是一个很适合分析分布式的工具或词汇，它存在很多自身的问题，下面为你做详细的剖析。
 
 ## CAP的本义
 
@@ -22,13 +22,17 @@ CAP，是下面三个单词Word（或短语Phrase）的首字母的组合，如�
 
 2. CP，如果你的分布式系统出现了系统分割Partition，你可以保证你的数据的一致性Consistency，但是，此时，你的系统，必须牺牲可用性Availability
 
-3. AP，如果你的分布式系统出现了系统分割Partition，你可以保证你的系统继续可用Availability，但是，此时，你的系统，不能保证数据一致性onsistency
+3. AP，如果你的分布式系统出现了系统分割Partition，你可以保证你的系统继续可用Availability，但是，此时，你的系统，不能保证数据一致性Consistency
 
-其核心是一种trade off，即你不能好处全得，你获得什么，也就意味你失去什么。比如：CA，失去P；CP，失去A；AP，失去C。
+CAP是一种trade off思想，即你不能好处全得，你获得什么，也就意味你失去什么。比如：
+
+* CA，失去P；
+* CP，失去A；
+* AP，失去C。
 
 下面我们看看，如何攻击上面的这个CAP定义。
 
-## 故意关闭或crash机器
+## 故意关闭或crash集群部分机器
 
 假设我有一个集群系统，有N台机器，我故意Crash几乎所有的机器，只留下最后一台。
 
@@ -39,23 +43,27 @@ CAP，是下面三个单词Word（或短语Phrase）的首字母的组合，如�
 于是，为了让CAP不破产，CAP需要第一修正案
 
 ```
-Partition，不能是简单地crash系统。它必须是基于网络，由网咯产生分割，而且每个Partition必须至少有1台机器活着。即我们不考虑crash掉的死机器
+Partition，不能是简单地crash系统。
+
+它必须是基于网络，由网咯产生分割，
+
+而且每个Partition必须至少有1台机器活着。即我们不考虑crash掉的死机器
 ```
 
 ## 故意等待一个足够长的时间
 
-根据上面的修正，我再做一个处理，我让数据包一直retry（比如：TCP重发或重连重发），直到网络恢复（比如：人工检修，一周后恢复网络正常通信），然后集群的数据得到同步，而等待网络数据包的时间，我不认为系统是不有效的（Availalbe），只不过系统是慢了点而已（即使慢一周也可以）。
+根据上面的修正，我再做一个处理，我让数据包一直retry（比如：TCP重发或重连重发），直到网络恢复（比如：人工检修，一周后恢复网络正常通信），然后集群的数据得到同步，而等待网络数据包的时间，我不认为系统是不有效的（Available），只不过系统是慢了点而已（即使慢一周也可以）。
 
 上面这个做法，又破坏了CAP的金身。
 
-于是，我们还需要再对CAP再做一个修正案
+于是，我们还需要再对CAP做一个修正案
 
 ```
 不可以长时间等待一个数据包，我们必须设置Timeout机制，或者，我们必须设定一些系统监控指标（metric），
 
 如果某个数据包时间过长（或者重试次数超过一个阀值），或者某个metric异常，
 
-我们就认为这个分布式系统是不可用的，即Not Available
+我们就认为这个分布式系统是不可用的，即 Not Available
 ```
 
 ## Write Follow Reads
@@ -66,31 +74,39 @@ Partition，不能是简单地crash系统。它必须是基于网络，由网咯
 
 如果发生网络分割，假设这两台机器之间不能通信了，请问，这个系统是否可以继续服务（Availabiliity）？
 
-答案是：可以，你可以继续读写，只是后台binlog同步暂时停止。
+答案是：可以，你可以继续读写，只是后台binlog同步暂时失效。
 
 那么，数据一致性有问题吗？
 
-我们看数据一致向的几个模型。请参考：里面的一致性模型图。
+我们看数据一致向的几个模型。请参考：[Consistency Models](http://jepsen.io/consistency)里面的一致性模型图。
 
-其中，有一个一致性叫：Write Follow Reads，其定义请参考：
+其中，有一个一致性模型叫：Write Follow Reads，其定义请参考：
 
-[Write Follow Reads的定义](http://jepsen.io/consistency/models/writes-follow-reads)
+[Write Follow Reads的定义](http://jepsen.io/consistency/models/writes-follow-reads)，我抄录其中定义如下：
 
-我们针对上面的系统，来看当Network Partition发生了，这个Consistency是否遵从？
+```
+Writes follow reads, also known as session causality, 
+ensures that if a process reads a value v, which came from a write w1, 
+and later performs write w2, then w2 must be visible after w1. 
+
+Once you’ve read something, you can’t change that read’s past.
+```
+
+我们针对上面的系统，来看看Network Partition发生了，我们让集群继续工作，这个Consistency是否失效？
 
 即能否出现下面的不一致情况
 
 ```
-如果有一个客户（Session），读到一个value，这个value是来自w1，然后这个sessioon写入w2（可以针对同一个UUID key）
+如果有一个客户（Session），读到一个value，这个value是来自w1，然后这个客户写入w2（可以是针对同一个UUID key）
 
 另外一个客户（Session），可以先读到w2，然后再读到w1
 ```
 
-显然，上面这个系统实现是不可能出现的。也就是说，在Network Parititoin时，上面这个分布式系统，即继续提供了服务（保持了Availability），同时也保证了一致性Write Follow Reads。
+显然，上面这个不一致，对于上面的这个MySQL分布式系统是不可能出现的。也就是说，在Network Parititoin时，上面这个分布式系统，即继续提供了服务（保持了Availability），同时也保证了一致性Write Follow Reads。
 
-这是不是就是说明CAP不对吗？
+这是不是打脸CAP？
 
-于是，我们还得对CAP加一个修正案
+于是，我们还得对CAP追加一个修正案：
 
 ```
 CAP中的C，Consistenccy，仅限于一致性模型中的Linerizability，即线性一致性
