@@ -109,10 +109,10 @@ Once you’ve read something, you can’t change that read’s past.
 于是，我们还得对CAP追加一个修正案：
 
 ```
-CAP中的C，Consistenccy，仅限于一致性模型中的Linerizability，即线性一致性
+CAP中的C，Consistency，仅限于一致性模型中的Linerizability，即线性一致性
 ```
 
-## etcd在Netwoork Partition时，继续提供Linerizability服务
+## etcd在Network Partition时，继续提供Linerizability服务
 
 我们知道有一个分布式系统etcd，它基于Raft实现，可以对读提供Linerizability。
 
