@@ -136,7 +136,7 @@ CAP里的Availability，不是针对整个系统而言（用一个可以工作�
 
 2. 必须有Timeout约束
 
-3. 不能针对所有的一种性模型，而只能是最高等级线性一致性Linerizability
+3. 不能针对所有的一致性模型，而只能是最高等级线性一致性Linerizability
 
 4. 即使针对Linerizability，Availability不是针对整个系统，而必须是所有的Partition
 
