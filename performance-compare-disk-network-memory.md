@@ -126,7 +126,7 @@ Latency和Throughput有一定的关联，某些情况下，甚至是线性相关
 
 ## 补充：为什么不在单机上App和Redis并用（问题里所涉及）
 
-问题连接：https://www.zhihu.com/question/47589908/answer/2166566017
+问题连接：https://www.zhihu.com/question/47589908/answer/2166566017
 
 将你的应用App，和Redis放在一个机器上，不是不可以。但单机的麻烦在于：
 
