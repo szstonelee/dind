@@ -124,6 +124,17 @@ Latency和Throughput有一定的关联，某些情况下，甚至是线性相关
 
 所以，对于数据库的应用，关键是优化磁盘的Throughput，但这个受影响的因素太多了，也就是数据库这么麻烦的地方。
 
+## 如何改造Redis使它支持磁盘
+
+BunnyRedis试图改造Redis使它支持磁盘，这同样带来很大的挑战，就是磁盘太慢。
+
+具体如何实现，请参考下面这几个文章
+
+https://zhuanlan.zhihu.com/p/392610767
+
+https://zhuanlan.zhihu.com/p/392773488
+
+
 ## 补充：为什么不在单机上App和Redis并用（问题里所涉及）
 
 问题连接：https://www.zhihu.com/question/47589908/answer/2166566017
