@@ -22,6 +22,10 @@ Latency是从时间的角度看，即一个动作，需要多少时间完成。
 
 Throughput（含Bandwidth）是一段时间完成的动作数，一般是1秒钟完成多少数量，然后，我们将每个IO动作所产生的效果字节化，以方便统一对比。
 
+## Latency、Throughput、Bandwidth，如何定义，有什么关系
+
+请参考下面这个文章：https://zhuanlan.zhihu.com/p/399883427
+
 ## 各IO的Latency
 
 随着硬件的提高，值每年能都在变化，大家可参考
@@ -35,10 +39,6 @@ https://colin-scott.github.io/personal_website/research/interactive_latency.html
 2. 局域网LAN的包的一来一回，100~200 us (2020年，文中是Datacenter，且是500us)，同时我们不考虑广义网WAN的Round Trip，因为受影响因素太多，而且Latency很大（一般估计几十ms到几秒)
 
 3. SSD的一次访问时延 几十个us到几百个us（2020年，文中是16us）
-
-## Latency、Throughput、Bandwidth，如何定义，有什么关系
-
-请参考下面这个文章：https://zhuanlan.zhihu.com/p/399883427
 
 ## 各IO的Bandwidth
 
