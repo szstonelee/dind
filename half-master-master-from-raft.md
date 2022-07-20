@@ -95,7 +95,7 @@ Raft为实现强一致，也需要单点leader和多机共识，可以参考下�
                     Half Master/Master
 
 *********************                *********************
-*  Stete Machine 1  *                *  Stete Machine n  *
+*  State Machine 1  *                *  State Machine n  *
 *    (Database)     *       ...      *  (same Database)  *
 *********************                *********************
 
