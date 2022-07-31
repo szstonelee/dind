@@ -19,4 +19,4 @@ think Different IN Distributed system.
 * [用Half Linearizability去破解线性一致性(Linearizability)的性能瓶颈](half-linearizability.md)
 * [分布式思考：最好不要用CAP去分析问题](no-cap.md)
 * [内存、网络、磁盘性能比较](performance-compare-disk-network-memory.md)
-* [从分布式Distributed、日志Log、一致性Consistency看AWS Aurora for MySQL](aurora.md)
+* [从分布式Distributed、日志Log、一致性Consistency分析AWS Aurora for MySQL](aurora.md)

@@ -10,11 +10,11 @@
 
 当然，Tony作为本文作者，也可能犯错误，所以，请用批判的精神阅读本文。
 
-## Aurora的架构特点
+## 一、Aurora的架构特点
 
 Aurora基于MySQL(InnoDB)的改造，是一个分布式OLTP的关系型数据库（RDB），它的架构，有如下特点:
 
-* 计算和存储分离
+### 1-1、计算和存储分离
 
 传统MySQL，存储是单独的磁盘作为硬件支持，和整个数据库位于同一机器（machine or node）上。而Aurora，存储是用单独的机器实现，作为存储层独立存在，然后，通过网络和数据库其他层（即计算层）交互，以实现ACID的支持。
 
@@ -22,7 +22,7 @@ Aurora基于MySQL(InnoDB)的改造，是一个分布式OLTP的关系型数据库
 
 存储层负责：和传统MySQL类比，它就像一个磁盘，用于存储几乎所有的数据（除了undo log）。但是，因为使用了机器（Storage node），Storage node有自己的CPU、内存（相比Computing node不大）、以及本地的SSD磁盘（相比Computing node非常大）。因此，Storage node不仅仅是一个磁盘硬件，也就是说，它可以运行程序，接受来自Computing node发来的请求并进行处理，并且在自己的内存里，形成一些数据结构（HashMap、Queue等），和本地SSD磁盘一起，通过网络应答（Client/Server）的模式，对计算层提供存储服务。同时，Storage node之间，也通信（Gossip）。
 
-* 集中共享式的分布式存储
+### 1-2、集中共享式的分布式存储
 
 所谓存储是分布式，指的是整个数据库数据data set，不只存在于一个Storage node上，而是有6个copy，分布在最少6台Storage nodes上。
 
@@ -40,7 +40,7 @@ Spanner是先考虑shard（比如：最少2个key就可以分布了），将数�
 
 同时，Aurora假定，对于存储层，系统正常工作的前提条件是：不允许超过2个（即大于2）Storage nodes同时发生故障。如果发生少于2的故障，应该在一定的时间内，用其他替代Storage node，来替代这些故障node。只要这个替代时间足够短（小于某个时限），就认为整个存储层是永远都不会故障的（有效概率达到一定数目的几个9，就认为是永久安全，类似UUID的思想）。
 
-* Single Master / Multi Slave模式
+### 1-3、Single Master / Multi Slave模式
 
 Aurora只有一个Computing node（注意：随后的补注2），作为master对外服务（在Amazon文档里，因为政治正确，它被叫做Primary node或者write node）。然后有最多15个replica（本文用传统的方式，称之为slave），一起组成一个计算集群，对外服务。即你的客户程序（Client App或者App），只能对master发出有读有写的SQL事务，但对于slave，只能用只读事务。
 
@@ -52,7 +52,7 @@ Aurora只有一个Computing node（注意：随后的补注2），作为master�
 
 2. Aurora后期也提供多Master的支持，但提供较晚，而且是基于前期单Master模式上改造的，本文只分析早期的单Master模式。
 
-* 落盘处理和相关log
+### 1-4、落盘处理和相关log
 
 master的写盘，只有redo log通信传输到存储层（注意：没有undo log到存储层），也没有page直接写盘（不管是网络上的存储层，还是本地磁盘）。
 
@@ -66,7 +66,7 @@ master和slave如果请求的page不在DB cache里，它们都是直接到存储
 
 log我们还必须详细解释，请接着往下看。
 
-## Log的妙趣
+## 二、Log的妙趣
 
 我们将数据库简化成一个字符串值，比如：初始值是，I am Tony。然后我们的事务Transaction修改数据库，加三个词word，先改写为: I am Tony coding for world。然后再增加两个word，改写为：I am Tony coding for world in China。这可以是一个事务分两次执行，也可以是两个事务并发执行（假定后一个修改的并发Transaction的修改效果，在时间上是后发生）。
 
@@ -136,9 +136,9 @@ undo log还带来一个MVCC的好处。
 
 2. 为了支持各种Isolation，除了需要undo log，还必须知道当时的Transaction运行状态。对于read only tansaction而言，它只需要知道当时的active write transaction列表。InnoDB里，只有写的Transaction才有Transaction ID（在第一个有写的SQL语句里分配），才会在transaction list里。read only tansactio是无Transaction ID的，不会在transaction list里。
 
-## Aurora的写Write : quorum write
+## 三、Aurora的写Write : quorum write
 
-### quorum write的意义
+### 3-1、quorum write的意义
 
 quorum是一个洋文，它的意思是选举里，必须达到法定人数，才算有效。对于Aurora，它有6个copy，因此系统设定quorum = 4。即4个Storage nodes写成功，才算是写成功的前提条件。
 
@@ -154,7 +154,7 @@ Aurora的处理是：
 
 补注：quorum字面上看（以及很多其他系统的实现），并不一定强制要求超过半数。Aurora对于写的quorum要求是4，是有特别原因的，详细不作解释，看论文。
 
-### quorum write的好处
+### 3-2、quorum write的好处
 
 因为乱序，所以，可以并发。即站在Computiing node眼里，上一个redo log record暂时还没有成功，并不影响处理下一个recoord发送给存储层。
 
@@ -162,7 +162,7 @@ Aurora的处理是：
 
 所以，Aurora的quorum write的乱序发送，对于吞吐Throughput有很大好处，因为少了前后的成功的约束。
 
-### quorum write的麻烦和如何解决
+### 3-3、quorum write的麻烦和如何解决
 
 #### 对于computing node (master) 的麻烦
 
@@ -230,14 +230,14 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 补注：Aurora的prev LSN是比较复杂的，正如我们前面讲到的，它还有segment shard，同时需要照顾磁盘存储基于block这个单位，所以Aurora里面，是存了三个prev LSN，分别是，基于整个redo log record链表的prev LSN，基于segment的prev LSN，和基于Block的prev LSN。本文为了简单，只笼统地说了一个prev LSN，但这不影响整个概念的阐述。
 
-## master的读read
+## 四、master的读read
 
-## slave的同步
+## 五、slave的同步
 
-## slave的读read
+## 六、slave的读read
 
 
-## 参考资料Reference
+## 七、参考资料Reference
 
 * [Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Database](https://web.stanford.edu/class/cs245/readings/aurora.pdf)
 * [Amazon Aurora: On Avoiding Distributed Consensus for I/Os, Commits, and Membership Changes](https://pages.cs.wisc.edu/~yxy/cs764-f20/papers/aurora-sigmod-18.pdf)
