@@ -379,6 +379,7 @@ slave是异步地接收master的redo log，所以，slave认为的VDL和master�
 
 解决方法也很简单：在所有的slave中，总有一个最小的read only transaction，它起始的read snapshot是基于某个slave VDL，对于这个最小的VDL，它之前的redo log records，Storage node都不用保存（因为发来的slave VDL参数只可能比这个大）。而随着read only transaction的结束，这个slae VDL一定是向前推进的（slave VDL会越来越大）。这个不断推进的最小的slave VDL，在Aurora里，被叫做Protection Group Minimum Read Point LSN (PGMRPL)。master和所有的slave交互，获得这个PGMRPL，然后发给Storage nodes，然后Storage node就可以根据PGMRPL，去做相关的清理purge工作，即从内存链表里，删除之前的redo log record和相应的磁盘page image。
 
+补注：再解释一下，为什么master的读可以只受VCL的约束，而slave却要受VDL的约束，是因为master上的事务，是真事务，是有锁保障其安全的，即使某个时刻B树不一致，因为master的锁机制，它保护不一致的B树，然后在继续执行的mini transaction中修补这个不一致。但slave上，并不是真正的transaction在执行，而只是apply atomic redo records from master，slave只有apply时，才能用stop the world的方式，保证B树由不一致转化为一致，如果中间切换，就打破了这个atomic约束，让其他read only transactions遍历到不一致的B树。
 
 ## 七、我猜测的Storage node的数据结构
 
@@ -414,7 +415,27 @@ Page(202) image: base LSN = 1
 
 作为Dynamic Programminng，我们可以在Disk上针对某个LSN缓存多个image版本（如果master或slave发来计算请求的话），这样，就简化了计算，不用针对重复的LSN请求每次都重复计算对应的page。相应的数据结构就不再详述。
 
-## 八、参考资料Reference
+## 八、对于Aurora的瓶颈在网络的理解
+
+我认为Aurora提出的瓶颈在网络的说法是正确的。
+
+请参考我写的一个文章：[《内存、网络、磁盘性能比较》](https://zhuanlan.zhihu.com/p/420534288)，一般而言，瓶颈在磁盘。
+
+但由于Aurora采用了计算和存储分离的架构，而且存储是分布式的（而且有segment shard），所以，用多个Storage node来统一提供存储服务，所以，这里，磁盘已经不受限制了。
+
+那么自然，整个Aurora的系统的上限，来自网络，即其最大的Throughput，最后受限于网络带宽的限制。
+
+我自己的实践，Half Master/Master的一个案例，[BunnyRedis](https://www.zhihu.com/column/c_1431329604070342656)，其最大上限也是网络，而且只针对写。所以，在我的文章里[《分布式思考：我们需要分片Shard（含分库分表）吗？》](https://zhuanlan.zhihu.com/p/403604353)，如果假设一个qps平均是1K Byte的话，那么，针对BunnyRedis，这个写的上限是25M qps(两千多万)，如果读和写的比例是十比一的话，整个BunnnyRedis系统的上限是：近三亿qps。
+
+## 九、Aurora性能的提升和如果超越Aurora的性能
+
+在Aurora的测试中，对比传统MySQL，其读写有十倍以上的提升。
+
+那么能否相比Aurora，针对支持ACID的RDB，再有至少十倍的提升呢？
+
+我认为是可以做到的，详细可参考我的一个文章：[从Raft角度看Half Master/Master(两层解耦)](https://zhuanlan.zhihu.com/p/407603154)。
+
+## 十、参考资料Reference
 
 * [Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Database](https://web.stanford.edu/class/cs245/readings/aurora.pdf)
 * [Amazon Aurora: On Avoiding Distributed Consensus for I/Os, Commits, and Membership Changes](https://pages.cs.wisc.edu/~yxy/cs764-f20/papers/aurora-sigmod-18.pdf)
