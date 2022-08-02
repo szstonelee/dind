@@ -18,7 +18,7 @@ Aurora基于MySQL(InnoDB)的改造，是一个分布式OLTP的关系型数据库
 
 传统MySQL，存储是单独的磁盘作为硬件支持，和整个数据库位于同一机器（machine or node）上。而Aurora，存储是用单独的机器实现，作为存储层独立存在，然后，通过网络和数据库其他层（即计算层）交互，以实现ACID的支持。
 
-计算层负责：客户端连接的管理、SQL语句的解析和执行计划（PLAN）的形成、并发事务Transaction的管理和隔离保证（Isolation）、大内存作为DB Cache（MySQL里又叫Page Pool）的管理。最后注意：计算机器（Computing node）也有本地磁盘，而且很重要（用于存储undo log），但整个的数据，并不存储于Computing node的本地磁盘上。
+计算层负责：客户端连接的管理、SQL语句的解析和执行计划（PLAN）的形成、并发事务Transaction的管理和隔离保证（Isolation）、大内存作为DB Cache（MySQL里又叫page pool或buffer pool）的管理。最后注意：计算机器（Computing node）也有本地磁盘，而且很重要（用于存储undo log），但整个的数据，并不存储于Computing node的本地磁盘上。
 
 存储层负责：和传统MySQL类比，它就像一个磁盘，用于存储几乎所有的数据（除了undo log）。但是，因为使用了机器（Storage node），Storage node有自己的CPU、内存（相比Computing node不大）、以及本地的SSD磁盘（相比Computing node非常大）。因此，Storage node不仅仅是一个磁盘硬件，也就是说，它可以运行程序，接受来自Computing node发来的请求并进行处理，并且在自己的内存里，形成一些数据结构（HashMap、Queue等），和本地SSD磁盘一起，通过网络应答（Client/Server）的模式，对计算层提供存储服务。同时，Storage node之间，也通信（Gossip）。
 
