@@ -306,16 +306,16 @@ latest change to the page) is greater than or equal to the VDL.
 
 我们在《Log的妙趣》里分析，只要有redo log，然后一步一步地apply顺序的redo log record，就可以像存储层那样，形成一个一致的data set。这视乎不需要undo log什么事？
 
-这是不对的，我们需要undo log，因为两个原因：
+这是不对的，slave需要undo log，因为两个原因：
 
 1. master可能crash，我们需要promote slave to master，这需要undo log，用于crash recover
 2. slave还需要服务其他（连接到本slave node的App）提交的read only transaction，而这些read only transaction需要MVCC，所以，我们还需要undo log。
 
-那就既需要redo log，也要提供undo log，同时，slave必须undo log本地存盘（因为Storage node没有undo log）。
+那slave的write同步，就既需要redo log，也要提供undo log，同时，slave必须undo log本地存盘（因为Storage node没有undo log）。
 
-同时上面的分析我们还知道，为了支持MVCC和各种Isolation，我们还需要知道transactionn list，即所有写的事务的Transaction ID。这个可以通过分析redo log得到，因为redo log记录了某个Transaction ID的诞生和消亡，但是为了简化slave的计算，Aurora里是将这些信息作为附加信息和redo log一起发给slave的。
+同时上面的分析我们还知道，为了支持MVCC和各种Isolation，我们还需要知道transactionn list，即所有写的事务的Transaction ID列表。这个可以通过分析redo log得到，因为redo log记录了某个Transaction ID的诞生和消亡，但是为了简化slave的计算，Aurora master是将这些信息作为附加信息和redo log一起发给slave的。
 
-然后，我们就需要考虑如何apply redo，我们能否像Storage node那样，来一个redo log record，就自由地在slave上进行apply？
+然后，我们就需要考虑如何apply redo，我们能否像Storage node那样，任意地自由地在slave上进行apply？
 
 我们不能。为什么？
 
@@ -325,7 +325,7 @@ latest change to the page) is greater than or equal to the VDL.
 
 在InnoDB里定义了mini transaction，就是为了这个目的。这个mini transaction的执行，必须是原子的，即中间不可打断（除非crash）。
 
-因此，当从master传过来的redo log进行apply到slave本机时，我们必须原子性地执行一个个mini transaction。所以，这个mini transaction的apply，是一个类似stop the world的操作，这时，其他read only transaction必须停下来，等这个redo log reecors of one (or last one) mini transaction完成。只有这个atomic apply完成后，read only transaction才能唤醒，并且并发地继续执行，因为这时，B树是一致的，不会引起这些read only transction遍历B树时，发现一个broken B tree，从而导致非法。
+因此，当从master传过来的redo log进行apply到slave本机时，我们必须原子性地执行一个个mini transaction。所以，这个mini transaction的apply，是一个类似stop the world的操作，这时，其他read only transaction必须停下来，等这个redo log records of one (or last one) mini transaction完成。只有这个atomic apply完成后，read only transaction才能唤醒，并且并发地继续执行，因为这时，B树是一致的，不会引起这些read only transction遍历B树时，发现一个broken B tree，从而导致非法。
 
 Aurora解决这个问题很简单，master将redo log按mini transaction分割，按chunk方式发过给slave，因为redo log里，任何一个在master上的mini transaction形成的redo log records，中间都绝对不会出现其他mini transaction生成的redo log record，即master在redo log的生成中，已经保证了，它是按mini transaction连续的。
 
@@ -343,7 +343,7 @@ Aurora解决这个问题很简单，master将redo log按mini transaction分割�
 
 ## 六、slave的读read
 
-当read only transaction需要某个不在DB cache的page时，不在DB cache的原因可能是：1. 它可能本来不在，2. 被slave ecict了（在slave上，没有dirty page），slave必须到存储层去获得这个page。
+当read only transaction需要某个不在DB cache的page时，不在DB cache的原因可能是：1. 它可能本来不在，2. 被slave ecict了（在slave上，evict时，不考虑dirty page的约束），slave必须到存储层去获得这个page。
 
 那slave能否像master那样，根据VCL的限定去某个Storage node上拿最新的page？
 
@@ -351,19 +351,19 @@ Aurora解决这个问题很简单，master将redo log按mini transaction分割�
 
 首先，和上面的《master的读read》分析一样，slave不可以拿VCL之后的page，即不可以拿Storage node还无法形成的page。
 
-其次，我们在《slave的同步（write for slave）》里分析了，slave上的read only transction，还必须受mini transaction这个约束。即如果我们从Storage node拿到的page，不能保证B树的完整性，那么会让read only transaction非法。所以，我们必须拿截止到某个VDL的页面。
+其次，我们在《slave的同步（write for slave）》里分析了，slave上的read only transction，还必须受mini transaction这个约束。即如果我们从Storage node拿到的page，不能保证B树的一致性，那么会让read only transaction遍历B树时非法。所以，我们必须拿截止到某个VDL的页面。
 
 最后，slave上的VDL和master的VDL是不一样的。
 
-因为slave是异步地通过接收master的redo log，所以，slave认为的VDL和master的VDL，在某个时刻，并不一样，但有一点可以肯定，即slave认定的VDL，一定小于或等于master的VDL（因为slave的VDL就是源自master的告知，而且master可以保证，通过chunk方式，发来的redo log records的最后一条，就是那个VDL，即slave认为的VDL）。
+slave是异步地接收master的redo log，所以，slave认为的VDL和master的VDL，在某个时刻，并不一样，但有一点可以做到，即slave认定的VDL，一定小于或等于master的VDL，master通过chunk方式发来的redo log records的最后一条，就是slave认定的那个VDL，而且此LSN，master可以保证小于或等于master自己认知的VDL（超过了master不发即可）。
 
-因此，我们可以定义一个slave VDL，即从master发来的VDL，它就是master通过chunk模式（mini transaction），所对应的最后一个LSN。
+因此，我们可以定义一个slave VDL，即从master发来的VDL，它就是master通过chunk模式（mini transaction），所对应的最后一个LSN，而且一定小于或等于master自己的VDL。
 
-即slave在DB cache里面必须做到：它apply了某个redo log records of last one mini transaction后，它的内存状态，必须和那个时刻（slave VDL）的master一模一样（如果s两边都有的话）。
+即slave在DB cache里面必须做到：它apply了某个redo log records of last one mini transaction后，它的内存状态，必须和那个时刻（slave VDL）的master一模一样（如果某个page在master和slave的DB cache里都有的话）。
 
-如果此page已经在slave的DB cache里，我们apply了这些redo log records，我们肯定可以保证此slave page是和那个slave VDL时刻的master是完全一样的。
+如果此page已经在slave的DB cache里，我们apply了这些redo log records，我们肯定可以保证此时slave page是和master（对应slave VDL时刻）是完全一样的。
 
-但上面分析说了，slave apply是可以略过（omit or skip）那些不在DB cache for slave的页面page，所以，当slave到Storage node去读某个page时，它必须读到截止到slave VDL时刻并且和master这个slave VDL时刻，完全一模一样的page，
+但上面分析说了，slave apply是可以略过（omit or skip）那些不在DB cache for slave的页面page，所以，当slave到Storage node去读某个page时，它必须读到截止到slave VDL时刻的页面值，即：如果看maste，必须是其slave VDL时刻（对于master现在已经是过去时刻了，而且现在可能已经是新的改过的page），完全一模一样的page。
 
 这个如何实现？
 
