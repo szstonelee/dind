@@ -359,21 +359,21 @@ slave是异步地接收master的redo log，所以，slave认为的VDL和master�
 
 因此，我们可以定义一个slave VDL，即从master发来的VDL，它就是master通过chunk模式（mini transaction），所对应的最后一个LSN，而且一定小于或等于master自己的VDL。
 
-即slave在DB cache里面必须做到：它apply了某个redo log records of last one mini transaction后，它的内存状态，必须和那个时刻（slave VDL）的master一模一样（如果某个page在master和slave的DB cache里都有的话）。
+即slave在DB cache里面必须做到：它apply了某个redo log records of last one mini transaction后，它的内存状态，必须和那个时刻（slave VDL）的master一模一样（注意：这个一模一样，只针对那些在master DB cache和slave的DB cache都有的page）。
 
 如果此page已经在slave的DB cache里，我们apply了这些redo log records，我们肯定可以保证此时slave page是和master（对应slave VDL时刻）是完全一样的。
 
-但上面分析说了，slave apply是可以略过（omit or skip）那些不在DB cache for slave的页面page，所以，当slave到Storage node去读某个page时，它必须读到截止到slave VDL时刻的页面值，即：如果看maste，必须是其slave VDL时刻（对于master现在已经是过去时刻了，而且现在可能已经是新的改过的page），完全一模一样的page。
+但上面分析说了，slave apply是可以略过（omit or skip）那些不在DB cache for slave的页面page，所以，当slave到Storage node去读某个page时，它必须读到截止到slave VDL时刻的页面值，即：如果从master角度看，这些slave从Storage读出的page，必须是master在slave VDL时刻完全一模一样的page（注意：master DB cache里，可能有更新的页面内容，而且，这个对应更新页面内容的redo log，可能已经发给了Storage node）。
 
-这个如何实现？
+这个如何解决？
 
-当slave去读盘时，它必须传入slave VDL作为参数，而Storage node在形成这个page时，不能用up-to-now的最新值，而必须是截止到slave VDL的page，而我们上面《Log的妙趣》分析了，我们可以通过page的初始值，然后再apply redo log records，获得任何一个时刻的page。因此，Storage node只要apply到小于和等于slave VDL的redo log records，就能返回合适的page值。
+当slave从Storage node去读page时，它必须传入slave VDL作为参数，而Storage node在形成这个page时，不能用up-to-now的最新值，而必须是截止到slave VDL的page，而我们上面《Log的妙趣》分析了，我们可以通过page的初始值，然后再apply redo log records，获得任何一个时刻的page。因此，Storage node只要apply到小于和等于slave VDL的redo log records，就能返回合适的page值。
 
 所以，Storage node必须保持redo log records的链表，这样，才能形成各个版本的page（有点类似MVCC）。
 
 那么，在从Storage加载这个页面这个异步过程中，master又发来了新的针对这个page的redo log records，怎么办？
 
-此时，slave必须将这些redo log records保留下来（不能omit，即不能认为这个page不在slave的DB cache里），形成针对这个page的链表，当存储层返回page结构后，立刻apply这个redo log records for this page链表，此时，就生成了，针对新的slave VDL时刻的page，并保证和master的新的slave VDL一模一样的页面page。
+此时，slave必须将这些redo log records保留下来（不能omit，即不能认为这个page不在slave的DB cache里），形成针对这个page的临时链表，当存储层返回page数据后，立刻apply这个redo log records for this page链表，此时，就生成了，针对新的slave VDL时刻的page，并保证和master那个时刻的一致性。
 
 上面的分析还带来一个问题，Storage node如果一直保留redo log records，不会撑破Storage nodes的内存？
 
