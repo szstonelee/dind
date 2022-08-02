@@ -87,9 +87,9 @@ Log我们还必须详细解释，请接着往下看《Log的妙趣》。
 ```
 上面的 + 号，相当于apply，就是根据log record的内容，然后做相应的动作（本范例的动作是：尾部追加几个词，append words）。
 
-上面啊的log record的总和，就是redo log。
+上面log record的总和，就是redo log。
 
-我们发现有下面几个现象：
+我们发现有下面几个规律：
 
 * log record必须有顺序，而且必须唯一确定，比如：我们如果将log record b放在log record a前面，数据库的终值会变成I am Tony in China coding for world，语句算通顺，但结果不一致。再比如：如果我们log record b出现了两次，则终值会变成：I am Tony coding for world in China in China，语句不通顺了。
 
@@ -97,7 +97,7 @@ Log我们还必须详细解释，请接着往下看《Log的妙趣》。
 
 数据库处理遵循上面的原则，即将修改动作log record记录到redo log并存盘。这样，即使数据库终值没有及时存盘（掉电或数据库进程被杀），我们一样可以通过磁盘上的数据库初值，再加上redo log，获得正确的数据库终值。
 
-数据库只所以用redo存盘，是因为整个数据库存盘代价太大（cost is big）。试想一下这个字符串初值长达100G大小。而redo log record不大，但历史（比如：一天）合起来的log record以及对应的DB会很大。所以，我们要redo不断及时存盘（而且是连续的追加方式，无需修改前面的存盘内容），而DB就可以适当延时存盘，可以部分存盘（part dirty pages flush，比如：100G的数据库，按16K一个Page，分别存盘），可以同一个page被重复多次存盘（in-place update），也可以合并存盘（check point）。
+数据库只所以用redo存盘，是因为整个数据库存盘代价太大（cost is big）。试想一下这个字符串初值长达100G大小。而redo log record不大，但历史（比如：一天）合起来的log record以及对应的DB会很大。所以，我们要redo不断及时存盘（而且是连续的追加方式，无需修改前面的存盘内容），而DB就可以适当延时存盘，可以部分存盘（part dirty pages flush，比如：100G的数据库，按16K一个page，分别存盘），可以同一个page被重复多次存盘（in-place update），也可以合并存盘（check point）。
 
 因此：
 
@@ -111,7 +111,7 @@ LSN是一个重要的定义，我们再做强调
 
 上面对于数据库有一个麻烦的地方叫：后悔。后悔的意思：Transactionn允许abort，数据库的值必须roll back到前面一个值，比如上例中，我们有两个Transaction，一个做动作a，一个做动作b，但允许做动作a的Transaction后悔，不commit，而是roll back。
 
-如果根据redo，我们发现，实际上，我们只要将redo log record里面的动作反着做，我们就可以得到修改的前值。为了计算简便，我们做一个对应的undo record log，如下
+如果根据redo，我们发现，实际上，我们只要将redo log record里面的动作反着做，我们就可以得到修改的前值。为了计算简便，我们做一个对应的undo record log（如果是动作是完全覆盖式，则必须需要），如下
 ```
 时刻:               time 1            time 2                              time 3
 
@@ -123,7 +123,9 @@ undo log record:                      delete: last three words            delete
 DB in disk:        I am Tony          I am Tony                           I am Tony
 ```
 
-如果已经执行动作a的Transaction，在还没有执行动作b前就后悔roll back（即time之后，time 3以前），我们只要在内存I am Tony coding for world这个值，对应的undo log record: delete: last three words，去执行这个undo动作，我们就可以获得I am Tony这个合适的值。如果已经执行动作a的Transaction a（但还没有commit），在time 3以后且Transaction b还没有commmit，如果Transaction a此时做roll back，我们必须连续读两个undo log record，然后计算得到，这是从尾部倒退五个单词word，然后开始删除三个单词，即从I am Tony coding for world in China，变回I am Tony in China。
+如果Transaction a，在即time 2之后，time 3以前进行roll back，我们只要在内存I am Tony coding for world这个值，对应的undo log record: delete: last three words，去执行这个undo动作，我们就可以获得I am Tony这个合适的值。
+
+如果Transaction a，在time 3以后，且Transaction b(还没有roll back（b可以是committed，也可以是uncommitted)，如果Transaction a此时做roll back，我们必须连续读两个undo log record，然后计算得到，这是从尾部倒退五个单词word，然后开始删除三个单词，即从I am Tony coding for world in China，变回I am Tony in China。
 
 所以，当前内存的DB，必须有一个指针，指向对应的undo record log。然后，历史的undo record log，必须形成一个链表，构成历史遍历，这时，任何一个Transaction需要roll back时，都可以从指针开始，遍历这个undo record链表，然后回复到合适的值。
 
@@ -135,15 +137,15 @@ undo log还带来一个MVCC的好处。
 
 试想一下还有另外一个read only transaction，它的Isolation被设置为READ COMMIT级别，即它不允许dirty read（不允许返回uncommited value）。
 
-当read only transaction读到内存的I am Tony coding for world时（time 2时刻），如果Transaction a还没有commit，那么，它必须去读对应的undo record log（通过tuple的指针），然后简单计算获得前值是I am Tony，然后才能保证返回值是一个committed value。
+当read only transaction读到内存的I am Tony coding for world时（time 2时刻），如果Transaction a还没有commit，那么，它必须去读对应的undo record log（通过tuple的指针），然后简单计算获得前值是I am Tony，然后才能保证此值是一个committed value。
 
-如果read only transactionn读到的时刻是time 3，内存的值已经变成I am Tony coding for world in China，同时Transaction a和b都没有commit，那么它必须通过undo链表，去计算得到I am Tony这个committed value。但如果Transaction a已经commit，而Transaction b还没有commit，那么它必须顺着这个undo 链表，同时还必须知道Transaction a和Transaction b的commit状态（即在数据库内存里，Transaction a和b是否在active transaction list里），然后得到此时的committed value = I am Tony coding for world。
+如果read only transactionn读到的时刻是time 3，内存的值已经变成I am Tony coding for world in China，同时Transaction a和b都没有commit，那么它必须通过undo链表，去计算得到I am Tony这个committed value。但如果Transaction a已经commit，而Transaction b还没有commit，那么它必须顺着这个undo 链表，得到此时的committed value = I am Tony coding for world。
 
 所以，下面的结论对我们后面的分析很重要：
 
 1. undo log支持MVCC，因此可以支持各种Isolation级别的读写。
 
-2. 为了支持各种Isolation，除了需要undo log，还必须知道当时所有的Transaction（有写）的运行状态，即某个时刻的transaction list（实际实现是一个对list的快照，即用vector存储即可）。InnoDB里，只有写的Transaction才有Transaction ID（在第一个有写的SQL语句里分配），才会在transaction list里。read only tansaction是无Transaction ID的，不会出现在transaction list里。
+2. 为了支持各种Isolation，除了需要undo log，还必须知道当时所有的Transaction（有写）的运行状态，即某个时刻的transaction list（实际实现是一个对transaction list的快照，即用vector存储即可）。InnoDB里，只有写的Transaction才有Transaction ID（在第一个有写的SQL语句里分配），才会在transaction list里。read only tansaction是无Transaction ID的，不会出现在transaction list里。
 
 注：上面的redo、undo范例中，是抽象模拟。实际对于任何一个field的更改，redo和undo都是记录整个field value。但是，由于一个tuple是由多个field组成，而redo和undo只记录被修改的field的值，所以，上面的抽象是可类比的，即某个tuple的整值，必须通过tuple初值，经过所有的redo log record计算获得最新值。而对应历史的旧值，或者roll back回到某个旧值，必须对undo log record进行遍历，
 
