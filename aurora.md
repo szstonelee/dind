@@ -28,17 +28,17 @@ Aurora基于MySQL(InnoDB)的改造，是一个分布式OLTP的关系型数据库
 
 所谓集中共享式，是指从任何一个Computing node眼里看存储层，都是统一无区别的。数据只有整体一致的六个copy，虚拟成一个统一的整体。
 
-但Aurora是整个数据data set有6个copy，而且每个copy，是做了shard，即segement方式分割数据。每个sengment不允许超过10G，data set超过大小即形成新的segment，segment之间是数据连续分布的。比如：整个dataset是20G，那么是2个segment，又必须有6个copy，则总共有12个segment。这12个segment，至少可以用6个Storage node去承担，也可以最多12个Storage node去成承担（也可以6-12中间任何一个数字的node）。并且，segment可以后台移动，即从一个Storage node，作为一个整体单位（segment为单位），移动到另外一个Storage node上。
+但Aurora是整个数据data set有6个copy，而且每个copy，是做了shard，即segement方式分割数据。每个sengment不允许超过10G，data set超过此大小限制即形成新的segment，segment之间是数据连续分布的。比如：整个dataset是20G，那么是2个segment，又必须有6个copy，则总共有12个segment。这12个segment，至少可以用6个Storage node去承担，也可以最多12个Storage node去成承担（也可以6-12中间任何一个数字的node）。并且，segment可以后台移动，即从一个Storage node，作为一个整体单位（segment为单位），移动到另外一个Storage node上。
 
-但这和类似Spanner、AWS DynomaDB的系统，shard上有本质的差别。
+但这和类似Google Spanner、AWS DynomaDB的系统，shard上有本质的差别。
 
 Spanner是先考虑shard（比如：最少2个key就可以分布了），将数据分散到多个node上，然后执行数据处理时，预先用Distributed Transaction做了准备。
 
-而Aurora是先不考虑Shard，即10G下，不需要多个segment shard。同时，做数据处理时，即使数据分布在多个segmeent上，也不需要Distribute Transaction考虑。即多个segment虚拟连接成好像一个独立的数据库存储空间（可以抽象成一个文件或一个tablespace，所有表table对应的clustered inxde和second index都在里面，即所有的B树），所以，我们仍然可以用B树对应的页page，以及任何一个page都只有唯一个Number（即Page No.）标识此page，只是Page No.需要一个根据node、segment进行一个相应的换算即可。
+而Aurora是先不考虑shard，即10G下，不需要多个segment。同时，做数据处理时，即使数据分布在多个segmeent上，也不需要Distribute Transaction考虑。即多个segment虚拟连接成好像一个独立的数据库存储空间（可以抽象成一个文件或一个tablespace，所有表table对应的clustered inxde和second index都在里面，即所有的B树），所以，我们仍然可以用B树对应的页page，以及任何一个page都只有唯一个Number（即Page No.）标识此page，只是Page No.需要根据node、segment进行一个相应的换算即可。
 
 后面分析时，为了简化理解，我们去除Aurora所使用的shard，即忽略segment的作用。我们简化成只有六个Storage nodes，然后有6个copy，每个在一个Storage node上。这对于整个Aurora系统分析，没有任何影响，但你必须理解，Aurora内部，是用segment做了shard的，而且存储集群不只限于6个Storage node。
 
-同时，Aurora假定，对于存储层，系统正常工作的前提条件是：不允许超过2个（即大于2）Storage nodes同时发生故障。如果发生少于2的故障，应该在一定的时间内，用其他替代Storage node，来替代这些故障node。只要这个替代时间足够短（小于某个时限），就认为整个存储层是永远都不会故障的（有效概率达到一定数目的几个9，就认为是永久安全，类似UUID的思想）。
+同时，Aurora假定，对于存储层，系统正常工作的前提条件是：不允许超过2个（即大于2）Storage nodes同时发生故障。如果发生少于2的故障，应该在一定的时间内，用其他Storage node替代故障的Storage node。只要这个替代时间足够短（小于某个时限），就认为整个存储层是永远都不会故障的（有效率达到一定数目的几个9，就认为是永久安全，类似UUID的思想）。
 
 ### 1-3、Single Master / Multi Slave模式
 
@@ -54,17 +54,17 @@ Aurora只有一个Computing node作为master对外服务（注意：随后的补
 
 ### 1-4、落盘处理和相关log
 
-* master的写盘，只有redo log通信传输到存储层（注意：没有undo log到存储层），也没有page直接写盘（不管是网络上的存储层，还是本地磁盘）。
+* master的写盘，只有redo log通信传输到存储层（注意：没有undo log到存储层），也没有page直接写盘（不管是网络上的存储层，还是master的本地磁盘）。
 
-* master的redo log，无需本地存盘。但undo log需要本地存盘。
+* master的redo log，无需本地存盘，但undo log需要本地存盘。
 
-* master和slave的通信（同步），即有redo log，也有undo log，但没有page直接传送。
+* master和slave的通信（只同步write），即有redo log，也有undo log，但没有page直接传送。
 
-* slave需要对undo log进行本地存盘，但对于redo log，无需存盘。
+* slave需要对undo log进行本地存盘，但对于redo log，无需本地存盘。
 
-* master和slave如果请求的page不在DB cache里，它们都是直接到存储层，通过网络请求获得对应的page。
+* master和slave如果请求的page不在DB cache里，它们都是直接到存储层，通过网络请求获得此page。
 
-log我们还必须详细解释，请接着往下看。
+Log我们还必须详细解释，请接着往下看。
 
 ## 二、Log的妙趣
 
@@ -75,7 +75,7 @@ log我们还必须详细解释，请接着往下看。
 * log record a: 尾部追加 coding for world
 * log record b: 尾部追加 in China
 
-我们发现，数据库有初值的话，每个修改动作被记录成log record，则数据库最后的值，是每个Action按顺序作用于前一个值的最后结果，因此，我们通过预先存在的一个初值和一个Log，来完整复现最后的数据库的终值，即
+我们发现，在数据库初值的基础上，每个修改动作被记录成log record，则数据库最后的终值，是每个log record所描述的动作，按顺序作用于前一个值的最后结果，即
 
 ```
  ------------                                       -------------
@@ -94,7 +94,7 @@ log我们还必须详细解释，请接着往下看。
 
 数据库处理遵循上面的原则，即将修改动作log record记录到redo log并存盘。这样，即使数据库终值没有及时存盘（掉电或数据库进程被杀），我们一样可以通过磁盘上的数据库初值，再加上redo log，获得正确的数据库终值。
 
-数据库只所以用redo存盘，是因为整个数据库存盘代价太大（cost is big）。试想一下这个字符串初值长达100G大小。而redo log record不大，但历史（比如：一天）合起来的log record以及对应的DB会很大。所以，我们要redo不断及时存盘（而且是连续的追加方式，无需修改前面的存盘内容），而DB就可以适当延时存盘，可以部分存盘（part dirty pages），可以同一个page被重复多次存盘（in-place update），也可以合并存盘（check point）。
+数据库只所以用redo存盘，是因为整个数据库存盘代价太大（cost is big）。试想一下这个字符串初值长达100G大小。而redo log record不大，但历史（比如：一天）合起来的log record以及对应的DB会很大。所以，我们要redo不断及时存盘（而且是连续的追加方式，无需修改前面的存盘内容），而DB就可以适当延时存盘，可以部分存盘（part dirty pages flush），可以同一个page被重复多次存盘（in-place update），也可以合并存盘（check point）。
 
 因此：
 
@@ -122,11 +122,13 @@ DB in disk:        I am Tony          I am Tony                           I am T
 
 如果已经执行动作a的Transaction，在还没有执行动作b前就后悔roll back（即time 3以前），我们只要在内存I am Tony coding for world这个值，对应的undo log record: delete: last three words，去执行这个undo动作，我们就可以获得I am Tony这个合适的值。如果已经执行动作a的Transaction，在并发的另外一个事务已经执行了动作b发生以后（即time 3以后），做roll back，我们必须连续读两个undo log record，然后计算得到，这是从尾部倒退五个单词word，然后开始删除三个单词，即从I am Tony coding for world in China，变回I am Tony in China。
 
-所以，当前内存的DB，必须有一个指针，指向对应的undo record log。然后，历史的undo record log，必须形成一个链表，构成历史遍历，这时，任何一个Transaction需要roll back时，都可以从指针开始，遍历这个undo record链表，然后回复到合适的值。如果需要（比如：上例中的Update），undo record log里，应该记录是哪个Transaction生成的（不记录Transaction的包括，Insert Type的undo record log，因为它不需要被其他Transaction感知，即不参与MVCC）。
+所以，当前内存的DB，必须有一个指针，指向对应的undo record log。然后，历史的undo record log，必须形成一个链表，构成历史遍历，这时，任何一个Transaction需要roll back时，都可以从指针开始，遍历这个undo record链表，然后回复到合适的值。
 
 我们不用对整个数据库，做成整体一个对象的redo log和undo log，如果这样，redo log和undo log都太大（想想并发很多Transactionn，运行很长时间，那个undo log遍历链表会变得很大）。我们可以对整个数据库，按照tuple和page为单位，作为redo和undo的目标对象，然后形成相应的链表。这样，每个tuple都有自己对应的undo链表用于roll back，同时，每个tuple，都有对应的连续的redo log records（无需形成链表，只要前后时间保证），用于recover时形成最终值。
 
 undo log还带来一个MVCC的好处。
+
+我们需要在undo log record里，记录是哪个Transaction做的动作（如果不是第一次生成的话，即Insert Type）。
 
 试想一下还有另外一个read only transaction，它的Isolation被设置为READ COMMIT级别，即它不允许dirty read（不允许返回uncommited value）。
 
@@ -389,8 +391,8 @@ HashMap: (key is page number, value is a list of redo log records for this page�
 Storage node disk:
 -------------------
 
-Block(101) image: base LSN = 0
-Block(202) image: base LSN = 1
+Page(101) image: base LSN = 0
+Page(202) image: base LSN = 1
 ```
 
 当PGMRPL增加后，我们可以修改HashMap里的list，同时回收Disk里旧的image，用新的image替代。
