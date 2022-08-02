@@ -183,37 +183,6 @@ Aurora的解决办法是：
 
 ### 3-3、quorum write的麻烦和如何解决
 
-#### 对于computing node (master) 的麻烦
-
-从前面的分析，我们得知，redo log record必须保证次序完整，才能保证数据库的最终一致性。
-
-站在master角度，稍有麻烦，因为发送是乱序的而且可以重发，所以，某个时刻，不能保证先发先到。因此，master必须记录发送队列queue，以及接受状态（某个recoord收到几个response，注意：实际实现为了效率，是按批packet发送的，所以只需记录packet的状态，我们这里用record作为单位，是为了简化理解）。但是，经过一段时间，master肯定可以收集到所有发出的redo log record的足够（大于或等于4）的回应，只要master不死（crash），一直活着的master，能保证截止到某一个时刻（即某个LSN），前面的所有的redo log record是连续写成功的。
-
-因此，一直有效（活的）master可以保证redo log record的quorum write，是可以做到：一直连续成功的，而且不断推进的，只是要异步等待一点时间。因此，master可以根据写存储成功，不断推进master里的并发事务处理。
-
-我们来分析一下commit的要求：
-
-传统的MySQL，在收到App的commit请求时，必须先生成对应的redo log record（先在内存里，即redo buffer），然后必须保证写盘成功（flush to disk，同时也保证之前的redo log reccord和相关的undo record log也写盘成功），然后才能接着处理后续的相关内容内容，包括解锁、改变Transaction状态（从transaction list里删除此Transaction ID）和返回commit成功信息给客户App。
-
-如果到了Aurora这里，生成的commit redo log record收到了Storage node的四个response，虽然此record被标识某种成功了（success of collecting quorum response，即master不用再针对这个record，向其他Storage node发送网络包了），但仍不算write success，必须保证前面的所有的乱序的redo log record也标识成功（success of collecting quorum response），此commit redo record才算写成功（success of quorum write），然后才能接着处理解锁、改transaction list以及回应App成功这些动作。
-
-但注意：其他非commit类型的redo log record的动作，Aurora的comupting node可以继续做，不受任何约束。那些修改某个tuple（对应的page）里的相关内容，可以继续生成redo log record（并作为一个Mini transaction写入到redo buffer）里，并执行这些动作的相关效果，包括且不限于下面这些动作类型：从存储层读某page，修改DB cache里的某个page，分裂和合并（split or merge）某些page以保证整个B树的完整一致，等等。
-
-所以，quorum write的异步性和分布式，并不影响Computing node里的并发的事务的执行效率，除非到了commit这个特别阶段。而且，到了commit阶段，也只影响当前提交commit请求的transaction（和对应的某个数据库连接），其他并发的Transaction并不受影响（除非受数据库的内部锁的影响，因为某个锁可能是正在等待commit的transaction持有的）。
-
-注意：read only transaction的commit不受quorum write success影响，因为read only commit没有生成redo log record（但read only transaction仍受数据库内部锁的约束，不过因为MVCC，锁的影响极小）。
-
-这里，Aurora引入一个重要的概念，**VCL**，其定义如下
-
->VCL: 就是Coomputing node（首先获得和唯一判定的：只能是master）看到的最后一个完成quorum write成功的redo log record（即最大的LSN），即保证之前的（LSN更小的）redo log record都已经quorum write成功。这个只要master简单记录redo log的发送和接受状态，然后经过简单计算可得。
-
-如果再转义一下，VCL就是针对存储层，落盘成功的最大的LSN且保证之前的LSN全部落盘成功。
-
-我们再加入一个相关的**VDL**，其定义如下：
->VDL：是截止到VCL的最近的一个mini commit log reecord点（也是一个LSN，但必须是mini transaction commit类型）。
-
-因为mini transaction保证了B树的完整性（否则，如果有split和merge动作，整个B树的遍历traverse会出错），即它是一个保证B树完整性的最接近VCL的LSN。细节我不描述，详细可参考InnoDB的mini transaction的说明。你只需要知道，它小于等于VCL，因此像VCL一样，能保证数据是最新的，同时，它也能保证B树是一致的，避免B树split和merge页面page时，带来的traverse非法错误问题。
-
 #### 对于Storage node的麻烦
 
 Storage node收到master的redo log record，这样，就可以根据本地的存储，以及这个redo，形成未来的对应的值。
@@ -254,13 +223,46 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 补注：Aurora的prev LSN是比较复杂的，正如我们前面讲到的，它还有segment shard，同时需要照顾磁盘存储基于block这个单位，所以Aurora里面，是存了三个prev LSN，分别是，基于整个redo log record链表的prev LSN，基于segment的prev LSN，和基于Block的prev LSN。本文为了简单，只笼统地说了一个prev LSN，但这不影响整个概念的阐述。
 
+#### 对于computing node (master) 的麻烦
+
+从前面的分析，我们得知，redo log record必须保证次序完整，才能保证数据库的最终一致性。
+
+站在master角度，稍有麻烦，因为发送是乱序的而且可以重发，所以，某个时刻，不能保证先发先到。因此，master必须记录发送队列queue，以及接受状态（某个recoord收到几个response，注意：实际实现为了效率，是按批packet发送的，所以只需记录packet的状态，我们这里用record作为单位，是为了简化理解）。但是，经过一段时间，master肯定可以收集到所有发出的redo log record的足够（大于或等于4）的回应，只要master不死（crash），一直活着的master，能保证截止到某一个时刻（即某个LSN），前面的所有的redo log record是连续写成功的。
+
+因此，一直有效（活的）master可以保证redo log record的quorum write，是可以做到：一直连续成功的，而且不断推进的，只是要异步等待一点时间。因此，master可以根据写存储成功，不断推进master里的并发事务处理。
+
+我们来分析一下commit的要求：
+
+传统的MySQL，在收到App的commit请求时，必须先生成对应的redo log record（先在内存里，即redo buffer），然后必须保证写盘成功（flush to disk，同时也保证之前的redo log reccord和相关的undo record log也写盘成功），然后才能接着处理后续的相关内容内容，包括解锁、改变Transaction状态（从transaction list里删除此Transaction ID）和返回commit成功信息给客户App。
+
+如果到了Aurora这里，生成的commit redo log record收到了Storage node的四个response，虽然此record被标识某种成功了（success of collecting quorum response，即master不用再针对这个record，向其他Storage node发送网络包了），但仍不算write success，必须保证前面的所有的乱序的redo log record也标识成功（success of collecting quorum response），此commit redo record才算写成功（success of quorum write），然后才能接着处理解锁、改transaction list以及回应App成功这些动作。
+
+但注意：其他非commit类型的redo log record的动作，Aurora的comupting node可以继续做，不受任何约束。那些修改某个tuple（对应的page）里的相关内容，可以继续生成redo log record（并作为一个Mini transaction写入到redo buffer）里，并执行这些动作的相关效果，包括且不限于下面这些动作类型：从存储层读某page，修改DB cache里的某个page，分裂和合并（split or merge）某些page以保证整个B树的完整一致，等等。
+
+所以，quorum write的异步性和分布式，并不影响Computing node里的并发的事务的执行效率，除非到了commit这个特别阶段。而且，到了commit阶段，也只影响当前提交commit请求的transaction（和对应的某个数据库连接），其他并发的Transaction并不受影响（除非受数据库的内部锁的影响，因为某个锁可能是正在等待commit的transaction持有的）。
+
+注意：read only transaction的commit不受quorum write success影响，因为read only commit没有生成redo log record（但read only transaction仍受数据库内部锁的约束，不过因为MVCC，锁的影响极小）。
+
+这里，Aurora引入一个重要的概念，**VCL**，其定义如下
+
+>VCL: 就是Coomputing node（首先获得和唯一判定的：只能是master）看到的最后一个完成quorum write成功的redo log record（即最大的LSN），即保证之前的（LSN更小的）redo log record都已经quorum write成功。这个只要master简单记录redo log的发送和接受状态，然后经过简单计算可得。
+
+如果再转义一下，VCL就是针对存储层，落盘成功的最大的LSN且保证之前的LSN全部落盘成功。
+
+注意：Aurora master实现VCL计算时，不是通过保存所有的redo record log记录的状态进行的，它只要收集所有Storage nodes的redo log record的连续状态，然后简单计算即可获得这个VCL。这样一是简化了master上的状态保存状态，二是可以保证六台Storage node（如果都活的话）都满足VCL，或者至少哪4台Storage node满足VCL。
+
+我们再加入一个相关的**VDL**，其定义如下：
+>VDL：是截止到VCL的最近的一个mini commit log reecord点（也是一个LSN，但必须是mini transaction commit类型）。
+
+因为mini transaction保证了B树的完整性（否则，如果有split和merge动作，整个B树的遍历traverse会出错），即它是一个保证B树完整性的最接近VCL的LSN。细节我不描述，详细可参考InnoDB的mini transaction的说明。你只需要知道，它小于等于VCL，因此像VCL一样，能保证数据是最新的，同时，它也能保证B树是一致的，避免B树split和merge页面page时，带来的traverse非法错误问题。
+
 ## 四、master的读read
 
-首先，正常情况下（非crash & recover阶段），那么，不管masster，还是slave，如果发现需要读的page不在DB cache里（cache miss），那么它只需要到一台Storage node去读，而不是quorum read。
+首先，正常情况下（非crash & recover阶段），那么，不管masster，还是slave，如果发现需要读的page不在DB cache里（cache miss），那么它只需要到一台Storage node去读，而且**不是quorum read**。注：crash & recover阶段的quorum read，对于读read，quorum是3，而不是4，因为这可以保证读到最新的值。
 
 为什么？
 
-首先，quorum读的cost比一台读，要大不少，因为latency是最慢的那个node。
+首先，quorum读的cost比一台读，要大不少，因为latency是最慢的那个node，网络带宽占用也大了几倍。
 
 其次，没有必要。
 
