@@ -36,9 +36,9 @@ Spanner是先考虑shard（比如：最少2个key就可以分布了），将数�
 
 而Aurora是先不考虑shard，即10G下，不需要多个segment。同时，做数据处理时，即使数据分布在多个segmeent上，也不需要Distribute Transaction考虑。即多个segment虚拟连接成好像一个独立的数据库存储空间（可以抽象成一个文件或一个tablespace，所有表table对应的clustered inxde和second index都在里面，即所有的B树），所以，我们仍然可以用B树对应的页page，以及任何一个page都只有唯一个Number（即Page No.）标识此page，只是Page No.需要根据node、segment进行一个相应的换算即可。
 
-后面分析时，为了简化理解，我们去除Aurora所使用的shard，即忽略segment的作用。我们简化成只有六个Storage nodes，然后有6个copy，每个在一个Storage node上。这对于整个Aurora系统分析，没有任何影响，但你必须理解，Aurora内部，是用segment做了shard的，而且存储集群不只限于6个Storage node。
+后面分析时，为了简化理解，我们去除Aurora所使用的shard，即忽略segment的作用。我们简化成只有六个Storage nodes，然后有6个copy，每个copy在一个Storage node上。这对于整个Aurora系统分析，没有任何影响，但你必须理解，Aurora内部，是用segment做了shard的，而且存储集群不只限于6个Storage node。
 
-同时，Aurora假定，对于存储层，系统正常工作的前提条件是：不允许超过2个（即大于2）Storage nodes同时发生故障。如果发生少于2的故障，应该在一定的时间内，用其他Storage node替代故障的Storage node。只要这个替代时间足够短（小于某个时限），就认为整个存储层是永远都不会故障的（有效率达到一定数目的几个9，就认为是永久安全，类似UUID的思想）。
+同时，Aurora假定，对于存储层，系统正常工作的前提条件是：不允许超过2个（即大于2）Storage nodes同时发生故障。如果发生少于2的故障，应该在一定的时间内，用更其他（非此6个）Storage node替代故障的Storage node。只要这个替代时间足够短（小于某个时限），就认为整个存储层是永远都不会故障的（有效率达到一定数目的几个9，就认为是永久安全，类似UUID的思想）。
 
 ### 1-3、Single Master / Multi Slave模式
 
@@ -64,7 +64,7 @@ Aurora只有一个Computing node作为master对外服务（注意：随后的补
 
 * master和slave如果请求的page不在DB cache里，它们都是直接到存储层，通过网络请求获得此page。
 
-Log我们还必须详细解释，请接着往下看。
+Log我们还必须详细解释，请接着往下看《Log的妙趣》。
 
 ## 二、Log的妙趣
 
@@ -75,12 +75,15 @@ Log我们还必须详细解释，请接着往下看。
 * log record a: 尾部追加 coding for world
 * log record b: 尾部追加 in China
 
-我们发现，在数据库初值的基础上，每个修改动作被记录成log record，则数据库最后的终值，是每个log record所描述的动作，按顺序作用于前一个值的最后结果，即
+我们发现，在数据库初值的基础上，则数据库最后的终值，是每个log record所描述的动作，按顺序作用于前一个值的最后结果，即
 
 ```
- ------------                                       -------------
-|  数据库初值  |  + log record a + log record b  =   |  数据库终值  |
- ------------                                       -------------
+ ------------                                                                                   ---------------------
+|  数据库初值  |       +     log record a              +      log record b               =       |   数据库终值         |
+|            |                                                                                 |  I am Tony          |
+| I am Tony  |      I am Tony coding for world     I am Tony coding for world in China         |  coding for world   |
+|            |                                                                                 |  in China           |
+ ------------                                                                                   ---------------------
 ```
 上面的 + 号，相当于apply，就是根据log record的内容，然后做相应的动作（本范例的动作是：尾部追加几个词，append words）。
 
