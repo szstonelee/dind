@@ -151,7 +151,7 @@ undo log还带来一个MVCC的好处。
 
 ## 三、Aurora的写Write : quorum write
 
-### 3-1、quorum write的意义
+### 3-1、quorum write的实现
 
 quorum是一个洋文，它的意思是选举里，必须达到法定人数，才算有效。对于Aurora，它有6个copy，因此系统设定quorum = 4。即4个Storage nodes写成功，才算是写成功的前提条件。
 
@@ -249,7 +249,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 如果再转义一下，VCL就是针对存储层，落盘成功的最大的LSN且保证之前的LSN全部落盘成功。
 
-注意：Aurora master实现VCL计算时，不是通过保存所有的redo record log记录的状态进行的，它只要收集所有Storage nodes的redo log record的连续状态，然后简单计算即可获得这个VCL。这样一是简化了master上的状态保存状态，二是可以保证六台Storage node（如果都活的话）都满足VCL，或者至少哪4台Storage node满足VCL。
+注意：Aurora master实现VCL计算时，不是通过保存所有的redo record log记录的状态进行的，它只要收集所有Storage nodes的redo log record的连续状态，然后简单计算即可获得这个VCL。这样一是简化了master上的状态保存状态，二是可以保证六台Storage node（如果都活的话）都满足VCL，或者至少哪4台Storage node满足VCL。尽管这个通过Storage nodes汇报而计算获得的VCL可能比如果master全部本地缓存全部状态而得到的值要低，但这个VCL已经足够了。
 
 我们再加入一个相关的**VDL**，其定义如下：
 >VDL：是截止到VCL的最近的一个mini commit log reecord点（也是一个LSN，但必须是mini transaction commit类型）。
@@ -272,13 +272,13 @@ master只要保证一点，不要读到旧数据stale data即可。那什么是s
 
 比如：
 
-master想要获得page number = 101的一个数据，它开始是在内存里（DB cache），所以master可以自由修改它，并假设产生了三次修改，分别对应redo log record的LSN为5、7、8。
+master想要获得page number = 101的一个数据，它开始是在内存里（DB cache），所以master可以自由修改它，并假设产生了三次修改，分别对应redo log record的LSN为5、7、8(还有一个LSN=6的record，但不是针对page 101的)。即Page 101在DB cache里对应的最新的修改的record LSN = 8。
 
-这时，masster因为DB cache满了，需要淘汰（evict）一个page，然后选择了101这个page，随后，事务处理又需要这个page的数据，这时，master必须发出一个到存储层的请求（找那个最快的Storage node去读）。但上面分析了，因为quorum write是异步的，此时VCL=6（即LSN=7还是空洞），此时，从存储层读出的page数据就不对，是个stale data。
+这时，masster因为DB cache满了，需要淘汰（evict）一个page，然后选择了101这个page，随后，事务处理又需要这个page的数据，这时，master必须发出一个到存储层的请求（找那个最快的Storage node去读）。但上面分析了，因为quorum write是异步的，假设此时VCL=6（即LSN=7还是空洞），此时，从存储层读出的page数据就不对，是个stale data。
 
-对于传统MySQL以上不存在问题，因为传统MySQL的算法是：如果要evict某个page，并且发现这个page是dirty page，必须先写盘。未来像上面的暗雷读出来，就不会出现stale data。即传统MySQL中，page 101落下的时候，已经保证apply了LSN为5、7、8的up-to-now data，
+对于传统MySQL以上不存在问题，因为传统MySQL的算法是：如果要evict某个page，并且发现这个page是dirty page，必须先写盘。未来像上面的暗雷读出来，就不会出现stale data。即传统MySQL中，page 101落下的时候，已经保证apply了LSN为5、7、8的up-to-now data，即LSN=8的page 101保证落盘，
 
-但Aurora的异步特征（见上面的分析，DB cache apply不受redo log发送是否完成的影响），同时Auror不会做像传统MySQL那样的本地的flush dirty page，就会出现上面这个麻烦。
+但Aurora的异步特征（见上面的分析，DB cache apply不受redo log发送是否完成的影响），同时Auror不会做像传统MySQL那样的本地的flush dirty page（前面说过，master不会向Storage发送page信息，而只有redo log信息），就会出现上面这个麻烦。
 
 解决方法也很简单：首先我们需要知道，每个redo log record，都最多只针对一个页面（有些record不针对具体某个page，比如：MLOG_MULTI_REC_END），对于每个page in DB cache，其上都有LSN号，对应最后一个和此page相关的redo log record。Aurora要evict的dirty page，必须保证已经在存储层落盘，这个只需要这个page上面的LSN，必须小于或等于VCL。
 
