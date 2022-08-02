@@ -78,12 +78,12 @@ Log我们还必须详细解释，请接着往下看《Log的妙趣》。
 我们发现，在数据库初值的基础上，数据库最后的终值，是每个log record所描述的动作，按顺序作用于前一个值的最后结果，即
 
 ```
- ------------                                                                                   ---------------------
-|  数据库初值  |       +     log record a              +      log record b               =       |      数据库终值      |
-|            |                                                                                 |  I am Tony          |
-| I am Tony  |      I am Tony coding for world     I am Tony coding for world in China         |  coding for world   |
-|            |                                                                                 |  in China           |
- ------------                                                                                   ---------------------
+ ------------                                                                 ---------------------
+|  数据库初值  |    +  log record a     +        log record b             =    |      数据库终值      |
+|            |                                                               |  I am Tony          |
+| I am Tony  |      I am Tony             I am Tony coding for world         |  coding for world   |
+|            |      coding for world      in China                           |  in China           |
+ ------------                                                                 ---------------------
 ```
 上面的 + 号，相当于apply，就是根据log record的内容，然后做相应的动作（本范例的动作是：尾部追加几个词，append words）。
 
