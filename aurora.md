@@ -415,7 +415,7 @@ Page(202) image: base LSN = 1
 
 作为Dynamic Programminng，我们可以在Disk上针对某个LSN缓存多个image版本（如果master或slave发来计算请求的话），这样，就简化了计算，不用针对重复的LSN请求每次都重复计算对应的page。相应的数据结构就不再详述。
 
-## 八、对于Aurora的瓶颈在网络的理解
+## 八、对于Aurora的”瓶颈在网络“的理解 
 
 我认为Aurora提出的瓶颈在网络的说法是正确的。
 
@@ -427,13 +427,15 @@ Page(202) image: base LSN = 1
 
 我自己的实践，Half Master/Master的一个案例，[BunnyRedis](https://www.zhihu.com/column/c_1431329604070342656)，其最大上限也是网络，而且只针对写。所以，在我的文章里[《分布式思考：我们需要分片Shard（含分库分表）吗？》](https://zhuanlan.zhihu.com/p/403604353)，如果假设一个qps平均是1K Byte的话，那么，针对BunnyRedis，这个写的上限是25M qps(两千多万)，如果读和写的比例是十比一的话，整个BunnnyRedis系统的上限是：近三亿qps。
 
-## 九、Aurora性能的提升和如果超越Aurora的性能
+## 九、Aurora性能的提升、如何超越Aurora的性能
 
 在Aurora的测试中，对比传统MySQL，其读写有十倍以上的提升。
 
 那么能否相比Aurora，针对支持ACID的RDB，再有至少十倍的提升呢？
 
 我认为是可以做到的，详细可参考我的一个文章：[从Raft角度看Half Master/Master(两层解耦)](https://zhuanlan.zhihu.com/p/407603154)。
+
+还有一个未来可能发表的文章《Half Master/Master模式在RDB OLTP下的性能⽐较分析》。
 
 ## 十、参考资料Reference
 
