@@ -169,7 +169,7 @@ Aurora的解决办法是：
 
 4. 当之前的所有的redo log record都收集了4个response，当前这个redo log record收集了4个response才算写成功，即还必须有之前连续的约束
 
-5. redo log record对应的动作，是否执行，和这个record是否写成功，没有关系，除非这个动作是commmit。即非commit动作不受quorum write的影响 
+5. redo log record对应的动作，是否执行，和这个record是否写成功，没有关系，除非这个动作是commmit。即非commit动作不受quorum write的影响（commit的影响请见下面的《对于computing node (master) 的麻烦》）
 
 补注：quorum字面上看（以及很多其他系统的实现），并不一定强制要求超过半数。Aurora对于写的quorum要求是4，是有特别原因的，详细不作解释，看论文。
 
@@ -245,9 +245,9 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 这里，Aurora引入一个重要的概念，**VCL**，其定义如下
 
->VCL: 就是Coomputing node（首先获得和唯一判定的：只能是master）看到的最后一个完成quorum write成功的redo log record（即最大的LSN），即保证之前的（LSN更小的）redo log record都已经quorum write成功。这个只要master简单记录redo log的发送和接受状态，然后经过简单计算可得。
+>VCL: 就是Computing node（首先获得和唯一判定的：只能是master）看到的最后一个完成quorum write成功的redo log record（即最大的LSN），即保证之前的（LSN更小的）redo log record都已经quorum write成功。这个只要master简单记录redo log的发送和接受状态，然后经过简单计算可得。
 
-如果再转义一下，VCL就是针对存储层，落盘成功的最大的LSN且保证之前的LSN全部落盘成功。
+如果再转义一下，VCL就是针对存储层，落盘成功的最大的LSN，且保证之前的LSN全部落盘成功。
 
 注意：Aurora master实现VCL计算时，不是通过保存所有的redo record log记录的状态进行的，它只要收集所有Storage nodes的redo log record的连续状态，然后简单计算即可获得这个VCL。这样一是简化了master上的状态保存状态，二是可以保证六台Storage node（如果都活的话）都满足VCL，或者至少哪4台Storage node满足VCL。尽管这个通过Storage nodes汇报而计算获得的VCL可能比如果master全部本地缓存全部状态而得到的值要低，但这个VCL已经足够了。
 
@@ -276,19 +276,21 @@ master想要获得page number = 101的一个数据，它开始是在内存里（
 
 这时，masster因为DB cache满了，需要淘汰（evict）一个page，然后选择了101这个page，随后，事务处理又需要这个page的数据，这时，master必须发出一个到存储层的请求（找那个最快的Storage node去读）。但上面分析了，因为quorum write是异步的，假设此时VCL=6（即LSN=7还是空洞），此时，从存储层读出的page数据就不对，是个stale data。
 
-对于传统MySQL以上不存在问题，因为传统MySQL的算法是：如果要evict某个page，并且发现这个page是dirty page，必须先写盘。未来像上面的暗雷读出来，就不会出现stale data。即传统MySQL中，page 101落下的时候，已经保证apply了LSN为5、7、8的up-to-now data，即LSN=8的page 101保证落盘，
+对于传统MySQL以上不存在问题，因为传统MySQL的算法是：如果要evict某个page，并且发现这个page是dirty page，必须先写盘。未来从本地磁盘读出来，就不会出现stale data。即传统MySQL中，page 101 evict时，已经保证apply了LSN为5、7、8的up-to-now data，即LSN=8的page 101保证落盘，
 
-但Aurora的异步特征（见上面的分析，DB cache apply不受redo log发送是否完成的影响），同时Auror不会做像传统MySQL那样的本地的flush dirty page（前面说过，master不会向Storage发送page信息，而只有redo log信息），就会出现上面这个麻烦。
+但Aurora的异步特征（见上面的分析，DB cache apply不受redo log发送是否完成的影响），同时Auror不会做像传统MySQL那样的本地的flush dirty page（前面说过，master不会向Storage nodes发送page信息，而只有redo log信息），就会出现上面这个麻烦。
 
-解决方法也很简单：首先我们需要知道，每个redo log record，都最多只针对一个页面（有些record不针对具体某个page，比如：MLOG_MULTI_REC_END），对于每个page in DB cache，其上都有LSN号，对应最后一个和此page相关的redo log record。Aurora要evict的dirty page，必须保证已经在存储层落盘，这个只需要这个page上面的LSN，必须小于或等于VCL。
+解决方法也很简单：首先我们需要知道，每个redo log record，都最多只针对一个页面（有些record不针对具体某个page，比如：MLOG_MULTI_REC_END，但这些record不会修改page），对于每个page in DB cache，其上都有LSN号，对应最后一个apply和此page相关的redo log record。Aurora要evict的dirty page，必须保证已经在存储层落盘，所以只要加上一个evict条件：这个dirty page上面的LSN，必须小于或等于VCL。
 
 这时，Aurora的master，就可以放心地evict这个page，未来再需要了， 直接去读存储层的对应的page，由于VCL的保证，那么这个存储在存储层的page，一定是保证同步的up-to-now的page。
 
-Aurora的论文，是用VDL做保证判断。但我个人的理解，VCL就股沟，但由于系统保证VDL小于等于VCL，所以，用VDL去做evict约束条件，没有任何问题。
+Aurora的论文，是用VDL做保证判断。但我个人的理解，对于master，VCL就足够，但由于系统保证VDL小于等于VCL，所以，用VDL去做evict约束条件，没有任何问题。
 
 其核心原理在于：当用这个约束去evict某个页面page时，我们保证master从存储层读到的page（而且是存储层计算获得的最新的page数据），一定是当时evict时的数据状态，然后，我们接着对这个已经存在DB cache内存的page进行操作时（对应了后续产生的redo log record for this page），一定是一致的。这个包括所有针对这个页面的任何写操作，如update、merge、split、delete等。
 
-注：在《Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases》论文中，我人为下面的话是有错的：
+你可能担心，如果evict然后read的page，不保证B树一致性（traverse会出错），怎么办？对于master，应该没有这个问题，因为master应该设置了相关的锁，保证这些page不会被访问到，从而维护B树的一致性（读出page的事务应该继续工作，将后面的page补齐，从而让树稍后保证B树一致性）。注意：这个仅对Aurora master有效，对于Aurora slave，其实现机理不同，不能通过VCL保证B树一致性（请继续阅读，直到《slave的读read》）。
+
+在《Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases》论文中，我人为下面的话是有错的：
 
 ```
 The guarantee is implemented by evicting a page from the cache only
