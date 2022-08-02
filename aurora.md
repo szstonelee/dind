@@ -68,18 +68,18 @@ Log我们还必须详细解释，请接着往下看《Log的妙趣》。
 
 ## 二、Log的妙趣
 
-我们将数据库简化成一个字符串值，比如：初始值是，I am Tony。然后我们的事务Transaction修改数据库，加三个词word，先改写为: I am Tony coding for world。然后再增加两个word，改写为：I am Tony coding for world in China。这可以是一个事务分两次执行，也可以是两个事务并发执行（假定后一个修改的并发Transaction的修改效果，在时间上是后发生）。
+我们将数据库简化成一个字符串值，比如：初始值是，I am Tony。然后我们的事务Transaction修改数据库，加三个词word，先改写为: I am Tony coding for world。然后再增加两个word，改写为：I am Tony coding for world in China。这可以是一个事务分两次执行，也可以是两个事务并发执行（假定追加两个词word的并发Transaction的修改效果，在时间上是后发生）。
 
-我们将每个修改动作作为Log record记录下来，这样上例中就存在两个Log record，分别是：
+我们将每个修改动作作为Log record记录下来，这样上例中就存在两个Log record，分别是a和b：
 
 * log record a: 尾部追加 coding for world
 * log record b: 尾部追加 in China
 
-我们发现，在数据库初值的基础上，则数据库最后的终值，是每个log record所描述的动作，按顺序作用于前一个值的最后结果，即
+我们发现，在数据库初值的基础上，数据库最后的终值，是每个log record所描述的动作，按顺序作用于前一个值的最后结果，即
 
 ```
  ------------                                                                                   ---------------------
-|  数据库初值  |       +     log record a              +      log record b               =       |   数据库终值         |
+|  数据库初值  |       +     log record a              +      log record b               =       |      数据库终值      |
 |            |                                                                                 |  I am Tony          |
 | I am Tony  |      I am Tony coding for world     I am Tony coding for world in China         |  coding for world   |
 |            |                                                                                 |  in China           |
@@ -97,7 +97,7 @@ Log我们还必须详细解释，请接着往下看《Log的妙趣》。
 
 数据库处理遵循上面的原则，即将修改动作log record记录到redo log并存盘。这样，即使数据库终值没有及时存盘（掉电或数据库进程被杀），我们一样可以通过磁盘上的数据库初值，再加上redo log，获得正确的数据库终值。
 
-数据库只所以用redo存盘，是因为整个数据库存盘代价太大（cost is big）。试想一下这个字符串初值长达100G大小。而redo log record不大，但历史（比如：一天）合起来的log record以及对应的DB会很大。所以，我们要redo不断及时存盘（而且是连续的追加方式，无需修改前面的存盘内容），而DB就可以适当延时存盘，可以部分存盘（part dirty pages flush,比如：100G的数据库，按16K一个Page，分别存盘），可以同一个page被重复多次存盘（in-place update），也可以合并存盘（check point）。
+数据库只所以用redo存盘，是因为整个数据库存盘代价太大（cost is big）。试想一下这个字符串初值长达100G大小。而redo log record不大，但历史（比如：一天）合起来的log record以及对应的DB会很大。所以，我们要redo不断及时存盘（而且是连续的追加方式，无需修改前面的存盘内容），而DB就可以适当延时存盘，可以部分存盘（part dirty pages flush，比如：100G的数据库，按16K一个Page，分别存盘），可以同一个page被重复多次存盘（in-place update），也可以合并存盘（check point）。
 
 因此：
 
@@ -123,21 +123,21 @@ undo log record:                      delete: last three words            delete
 DB in disk:        I am Tony          I am Tony                           I am Tony
 ```
 
-如果已经执行动作a的Transaction，在还没有执行动作b前就后悔roll back（即time 3以前），我们只要在内存I am Tony coding for world这个值，对应的undo log record: delete: last three words，去执行这个undo动作，我们就可以获得I am Tony这个合适的值。如果已经执行动作a的Transaction a（但还没有commit），在并发的另外一个事务已经执行了动作b发生以后（即time 3以后），Transaction a做roll back，我们必须连续读两个undo log record，然后计算得到，这是从尾部倒退五个单词word，然后开始删除三个单词，即从I am Tony coding for world in China，变回I am Tony in China。
+如果已经执行动作a的Transaction，在还没有执行动作b前就后悔roll back（即time之后，time 3以前），我们只要在内存I am Tony coding for world这个值，对应的undo log record: delete: last three words，去执行这个undo动作，我们就可以获得I am Tony这个合适的值。如果已经执行动作a的Transaction a（但还没有commit），在time 3以后且Transaction b还没有commmit，如果Transaction a此时做roll back，我们必须连续读两个undo log record，然后计算得到，这是从尾部倒退五个单词word，然后开始删除三个单词，即从I am Tony coding for world in China，变回I am Tony in China。
 
 所以，当前内存的DB，必须有一个指针，指向对应的undo record log。然后，历史的undo record log，必须形成一个链表，构成历史遍历，这时，任何一个Transaction需要roll back时，都可以从指针开始，遍历这个undo record链表，然后回复到合适的值。
 
-我们不用对整个数据库，做成整体一个对象的redo log和undo log，如果这样，redo log和undo log都太大。我们可以对整个数据库，按照tuple和page为单位，作为redo和undo的目标对象，然后形成相应的链表。这样，每个tuple都有自己对应的undo链表用于roll back，同时，每个tuple，都有对应的连续的redo log records（无需形成链表，只要前后时间保证），用于crash and recover时形成最终值并可以存盘。
+我们不用对整个数据库，做成整体一个对象的redo log和undo log，如果这样，遍历代价太大。我们可以对整个数据库，按照tuple和page为单位，作为redo和undo的目标对象，然后形成相应的链表。这样，每个tuple都有自己对应的undo链表用于roll back，同时，每个tuple，都有对应的连续的redo log records（无需形成链表，只要前后时间保证），用于crash and recover时形成最终值并可以存盘。
 
 undo log还带来一个MVCC的好处。
 
-我们需要在undo log record里，记录是哪个Transaction做的动作（如果不是第一次生成的话，即Insert Type）。
+我们在undo log record里，记录是哪个Transaction做的动作（如果不是第一次生成的话，即Insert Type）。
 
 试想一下还有另外一个read only transaction，它的Isolation被设置为READ COMMIT级别，即它不允许dirty read（不允许返回uncommited value）。
 
 当read only transaction读到内存的I am Tony coding for world时（time 2时刻），如果Transaction a还没有commit，那么，它必须去读对应的undo record log（通过tuple的指针），然后简单计算获得前值是I am Tony，然后才能保证返回值是一个committed value。
 
-如果read only transactionn读到的时刻是time 3，内存的值已经变成I am Tony coding for world in China，同时Transaction a和b都没有commit，那么它必须通过undo链表，去计算得到I am Tony这个committed value。但如果Transaction a已经commit，而Transaction b还没有commit，那么它必须顺着这个undo 链表，同时必须知道Transaction a和Transaction b的commit状态（即在数据库内存里，Transaction a和b是否在active transaction list里），然后得到此时的committed value = I am Tony coding for world。
+如果read only transactionn读到的时刻是time 3，内存的值已经变成I am Tony coding for world in China，同时Transaction a和b都没有commit，那么它必须通过undo链表，去计算得到I am Tony这个committed value。但如果Transaction a已经commit，而Transaction b还没有commit，那么它必须顺着这个undo 链表，同时还必须知道Transaction a和Transaction b的commit状态（即在数据库内存里，Transaction a和b是否在active transaction list里），然后得到此时的committed value = I am Tony coding for world。
 
 所以，下面的结论对我们后面的分析很重要：
 
@@ -145,7 +145,7 @@ undo log还带来一个MVCC的好处。
 
 2. 为了支持各种Isolation，除了需要undo log，还必须知道当时所有的Transaction（有写）的运行状态，即某个时刻的transaction list（实际实现是一个对list的快照，即用vector存储即可）。InnoDB里，只有写的Transaction才有Transaction ID（在第一个有写的SQL语句里分配），才会在transaction list里。read only tansaction是无Transaction ID的，不会出现在transaction list里。
 
-注：上面的redo、undo范例中，是抽象模拟。实际对于任何一个field的更改，redo和undo都是记录整个field value。但是，由于一个tuple是由多个field组成，而redo和undo只记录被修改的field的值，所以，上面的抽象是有道理的。即某个tuple的整值，必须通过tuple初值，经过所有的redo log record计算获得最新值。而对应历史的旧值，或者roll back回到某个旧值，必须对undo log record进行遍历，
+注：上面的redo、undo范例中，是抽象模拟。实际对于任何一个field的更改，redo和undo都是记录整个field value。但是，由于一个tuple是由多个field组成，而redo和undo只记录被修改的field的值，所以，上面的抽象是可类比的，即某个tuple的整值，必须通过tuple初值，经过所有的redo log record计算获得最新值。而对应历史的旧值，或者roll back回到某个旧值，必须对undo log record进行遍历，
 
 ## 三、Aurora的写Write : quorum write
 
@@ -155,13 +155,19 @@ quorum是一个洋文，它的意思是选举里，必须达到法定人数，�
 
 前面的描述知道，计算层和存储层时通过网络通信的，而且都是独立的机器node，所以，站在发起write的Computing node眼里，是收到Storage node的response，这个Storage node才算成功，而且收集了至少4个成功返回response的Storage node，Computing node才认为这是写成功的必要条件（注意：还不算写成功）。
 
-我们又知道，Aurora里，Computing node只发送redo log给Storage node，这个redo log在Computing node内存里，是按LSN顺序不断尾部追加redo log record的，那么Aurora如何处理：1. 异步的通信；2. 分布的6个Storage nodes，这两个麻烦。
+我们又知道，Aurora里，Computing node只发送redo log给Storage node，这个redo log在Computing node内存里，是按LSN顺序不断尾部追加redo log record的，那么Aurora如何处理后面这两个麻烦：其一. 异步的通信；其二，分布的6个Storage nodes。
 
-Aurora的处理是：
+Aurora的解决办法是：
 
 1. 并不强求上一个redo log record写成功，才发下一个redo log record。即可以乱序
 
-2. 如果某个redo log record暂时没有写成功，就重试重发，因为假设整个存储层是永久有效的（见上文描述），所以，这个write也是最终quorum write成功的
+2. 如果某个redo log record暂时没有收集到4个response，就重试重发，因为假设整个存储层是永久有效的（见上文描述），所以，这个write也是最终能保证收集4个response。
+
+3. 当某个redo log record收集了4个response，可以不再给剩下的2个发write请求，因为系统允许至多两个Storage node失败（例如：停机维护）
+
+4. 当之前的所有的redo log record都收集了4个response，当前这个redo log record才算写成功，即还必须有连续的约束
+
+5. redo log record对应的动作，是否执行，和这个record是否写成功，没有关系，除非这个动作是commmit。即非commit动作不受quorum write的影响 
 
 补注：quorum字面上看（以及很多其他系统的实现），并不一定强制要求超过半数。Aurora对于写的quorum要求是4，是有特别原因的，详细不作解释，看论文。
 
