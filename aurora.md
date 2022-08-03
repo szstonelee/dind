@@ -384,11 +384,11 @@ slave是异步地接收master的redo log，所以，slave认为的VDL和master�
 
 因此，我们可以定义一个slave VDL，即从master发来的VDL，它就是master通过chunk模式（mini transaction），所对应的最后一个LSN，而且一定小于或等于master自己的VDL。
 
-即slave在DB cache里面必须做到：它apply了某个redo log records of last one mini transaction后，它的内存状态，必须和那个时刻（slave VDL）的master一模一样（注意：这个一模一样，只针对那些在master DB cache和slave的DB cache都有的page）。
+即slave在DB cache里面必须做到：它apply了某个redo log records of last one mini transaction后，它的内存状态，必须和那个时刻（slave VDL）的master一模一样（注意：这个一模一样，在当时的内存下，只针对那些在master DB cache和slave的DB cache都有的page）。
 
 如果此page已经在slave的DB cache里，我们apply了这些redo log records，我们肯定可以保证此时slave page是和master（对应slave VDL时刻）是完全一样的。
 
-但上面分析说了，slave apply是可以略过（omit or skip）那些不在DB cache for slave的页面page，所以，当slave到Storage node去读某个page时，它必须读到截止到slave VDL时刻的页面值，即：如果从master角度看，这些slave从Storage读出的page，必须是master在slave VDL时刻完全一模一样的page（注意：master DB cache里，此时，可能有更新的页面内容，而且，这个对应更新页面内容的redo log，可能也已经发给了Storage node）。
+但上面分析说了，slave apply是可以略过（omit or skip）那些不在DB cache for slave的页面page，所以，当slave到Storage node去读某个page时，它必须读到截止到slave VDL时刻的页面值，即：如果从master角度看，这些slave从Storage读出的page，必须是master在slave VDL时刻完全一模一样的page（注意：master DB cache里，此时，即物理上slave write时刻，可能有更新的页面内容，而且，这个对应更新页面内容的redo log，可能也已经发给了Storage node）。
 
 这个如何解决？
 
@@ -402,16 +402,16 @@ slave是异步地接收master的redo log，所以，slave认为的VDL和master�
 
 上面的分析还带来一个问题，Storage node如果一直保留redo log records，不会撑破Storage nodes的内存？
 
-解决方法也很简单：在所有的slave中，总有一个最小的read only transaction，它起始的read snapshot是基于某个slave VDL，对于这个最小的VDL，它之前的redo log records，Storage node都不用保存（因为未来发来的slave VDL参数只可能比这个大）。而随着read only transaction的结束，这个slae VDL一定是向前推进的（slave VDL会越来越大）。这个不断推进的最小的slave VDL，在Aurora里，被叫做Protection Group Minimum Read Point LSN (PGMRPL)。master和所有的slave交互，获得这个PGMRPL，然后发给Storage nodes，然后Storage node就可以根据PGMRPL，去做相关的清理purge工作，即从内存链表里，删除之前的redo log record和相应的磁盘page image。
+解决方法也很简单：在所有的slave中，总有一个最小的read only transaction，它起始的read snapshot是基于某个slave VDL，对于这个最小的VDL，它之前的redo log records，Storage node都不用保存（因为未来发来的slave VDL参数只可能比这个大）。而随着read only transaction的结束，这个slave VDL一定是向前推进的（slave VDL会越来越大）。这个不断推进的最小的slave VDL，在Aurora里，被叫做Protection Group Minimum Read Point LSN (PGMRPL)。master和所有的slave交互，获得这个PGMRPL，然后发给Storage nodes，然后Storage node就可以根据PGMRPL，去做相关的清理purge工作，即从内存链表里，删除之前的redo log record和相应的磁盘page image。
 
-补注：再解释一下，为什么master的读可以只受VCL的约束，而slave却要受VDL的约束，是因为master上的事务，是真事务，是有锁保障其安全的，即使某个时刻B树不一致，因为master的锁机制，它保护不一致的B树，然后在继续执行的mini transaction中修补这个不一致。但slave上，并不是真正的transaction在执行，而只是apply atomic redo records from master，slave只有apply时，才能用stop the world的方式（即slave并不用真正的事务锁），保证B树由不一致转化为一致，如果中间切换read only事务来执行，就打破了这个atomic约束，让read only transactions遍历到不一致的B树。
+补注：再解释一下，为什么master的读可以只受VCL的约束，而slave却要受VDL的约束，是因为master上的事务，是真事务，是有锁保障其安全的，即使某个时刻B树不一致，因为master的锁机制，它保护不一致的B树，然后在继续执行的mini transaction中修补这个不一致。但slave上，并不是真正的transaction在执行，而只是apply atomic redo records from master，slave只有apply时，才能用stop the world的方式（即slave并不用真正的事务锁），保证B树由不一致转化为一致，如果中间切换read only事务来执行，就打破了这个atomic约束而且没有真正的写事务锁来保护，让read only transaction可能遍历到不一致的B树。
 
 ## 七、我猜测的Storage node的数据结构
 
 提醒：下面是我根据上面的分析，对Storage node的数据结构的猜测，而且是忽略segment shard的（考虑segment，也可以推理出相应的数据结构）
 
 ```
-NOTE: LSN is single digit，Page No. is 3-digits
+NOTE: LSN is single digit (0-9)，Page Number (Page No.) is 3-digits (101, 202)
 
 Storage node memory:
 --------------------
@@ -420,7 +420,7 @@ input queue from master:  LSN = 2（101）、3（202)、5（202）、2（101）�
 
 PGMRPL from master: 0
 
-gossip queue: 7 (prev is 6) 、9（prev is 8）    so holes are LSN = 6 and 8
+gossip queue: 7 (prev is 6) 、9（prev is 8）    so holes are LSN = 6 、8
 
 HashMap: (key is page number, value is a list of redo log records for this page）  
 
@@ -438,7 +438,7 @@ Page(202) image: base LSN = 1
 
 当PGMRPL增加后，我们可以修改HashMap里的list，同时回收Disk里旧的image，用新的image替代。
 
-作为Dynamic Programminng，我们可以在Disk上针对某个LSN缓存多个image版本（如果master或slave发来计算请求的话），这样，就简化了计算，不用针对重复的LSN请求每次都重复计算对应的page。相应的数据结构就不再详述。
+我们可以在Disk上针对某个LSN缓存一个对应的image版本（如果master或slave发来计算请求的话），这样，就简化了计算，不用针对重复的LSN请求每次都重复计算。相应的数据结构就不再详述，这不过是个Dynamic Programming算法。
 
 ## 八、对于Aurora的”瓶颈在网络“的理解 
 
