@@ -34,7 +34,7 @@ Aurora基于MySQL(InnoDB)的改造，是一个分布式OLTP的关系型数据库
 
 Spanner是先考虑shard（比如：最少2个key就可以分布了），将数据分散到多个node上，然后执行数据处理时，预先用Distributed Transaction做了准备。
 
-而Aurora是先不考虑shard，即10G下，不需要多个segment。同时，做数据处理时，即使数据分布在多个segment上，也不需要Distribute Transaction考虑。即多个segment虚拟连接成好像一个独立的数据库存储空间（可以抽象成一个文件或一个tablespace，所有表table对应的clustered inxde和second index都在里面，即所有的B树），所以，我们仍然可以用B树对应的页page，以及任何一个page都只有唯一的Number（即Page No.）标识此page，只是Page No.需要根据node、segment进行一个相应的换算即可。
+而Aurora是先不考虑shard，即10G下，不需要多个segment。同时，做数据处理时，即使数据分布在多个segment上，也不需要Distribute Transaction考虑。即多个segment虚拟连接成好像一个独立的数据库存储空间（可以抽象成一个文件或一个tablespace，所有表table对应的clustered inxde和second index都在里面，即所有的B tree），所以，我们仍然可以用B tree对应的页page，以及任何一个page都只有唯一的Number（即Page No.）标识此page，只是Page No.需要根据node、segment进行一个相应的换算即可。
 
 后面分析时，为了简化理解，我们去除Aurora所使用的shard，即忽略segment的作用。我们简化成只有六个Storage nodes，然后有6个copy，每个copy在一个Storage node上。这对于整个Aurora系统分析，没有任何影响，但你必须理解，Aurora内部，是用segment做了shard的，而且存储集群不只限于6个Storage node。
 
@@ -62,7 +62,7 @@ Aurora只有一个Computing node作为master对外服务（注意：随后的补
 
 * master的redo log，无需本地存盘，但undo log需要本地存盘。
 
-* master和slave的通信（只同步write），即有redo log，也有undo log，但没有page直接传送。master和slave之间Storage node，不需要binlog的传输，即master和slave之间是物理同步（redo，redo是针对B树具体page的物理操作记录），而不是逻辑同步（MySQL binlog里的信息是逻辑操作信息，即SQL语句或针对某个tuple的write）
+* master和slave的通信（只同步write），即有redo log，也有undo log，但没有page直接传送。master和slave之间Storage node，不需要binlog的传输，即master和slave之间是物理同步（redo，redo是针对B tree具体page的物理操作记录），而不是逻辑同步（MySQL binlog里的信息是逻辑操作信息，即SQL语句或针对某个tuple的write）
 
 * slave需要对undo log进行本地存盘，但对于redo log，无需本地存盘。
 
@@ -235,7 +235,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 对于无漏洞的连续的redo log record，Storage node可以放心地一个接着一个地进行apply，获得对应的数据库状态。而且状态可以不只一个，如果条件允许，我们可以用新的状态覆盖旧的状态，或者，删除旧的状态，即回收purge（也可以叫GC，Garbage Collection）。为什么不用一个状态表达呢，为什么说条件允许，为什么要purge or GC？我们后面（《slave的读read》）会涉及这个知识点。
 
-补注：Aurora的prev LSN是比较复杂的，正如我们前面讲到的，它还有segment shard，同时需要照顾磁盘存储基于block这个单位（即对应的page，磁盘的block和B树的page，是一一对应的），所以Aurora里面，是存了三个prev LSN，分别是，基于整个redo log record链表的prev LSN，基于segment的prev LSN，和基于Block的prev LSN。本文为了简单，只笼统地说了一个prev LSN，但这不影响整个概念的阐述。
+补注：Aurora的prev LSN是比较复杂的，正如我们前面讲到的，它还有segment shard，同时需要照顾磁盘存储基于block这个单位（即对应的page，磁盘的block和B tree的page，是一一对应的），所以Aurora里面，是存了三个prev LSN，分别是，基于整个redo log record链表的prev LSN，基于segment的prev LSN，和基于Block的prev LSN。本文为了简单，只笼统地说了一个prev LSN，但这不影响整个概念的阐述。
 
 #### 对于computing node (master) 的麻烦
 
@@ -251,7 +251,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 如果到了Aurora这里，生成的commit redo log record收到了Storage node的四个response，虽然此record被标识某种成功了（success of collecting quorum response），但仍不算write success，必须保证前面的所有的乱序和异步发送的redo log record也标识成功（success of collecting quorum response），此commit redo record才算写成功（success of quorum write），然后才能接着处理解锁、改transaction list以及回应App成功这些动作。
 
-但注意：其他非commit类型的redo log record的动作，master可以继续做，不受任何约束。那些修改某个tuple（对应的page）里的相关内容，可以继续生成redo log record，并执行这些动作的相关效果，包括且不限于下面这些操作：从存储层读某page，修改DB cache里的某个page，分裂和合并（split or merge）某些page以保证整个B树的完整一致，等等。
+但注意：其他非commit类型的redo log record的动作，master可以继续做，不受任何约束。那些修改某个tuple（对应的page）里的相关内容，可以继续生成redo log record，并执行这些动作的相关效果，包括且不限于下面这些操作：从存储层读某page，修改DB cache里的某个page，分裂和合并（split or merge）某些page以保证整个B tree的完整一致，等等。
 
 所以，quorum write的异步性和分布式，并不影响master的并发的事务的执行效率，除非到了commit这个特别阶段。而且，到了commit阶段，也只影响当前提交commit请求的transaction（和对应的某个数据库连接），其他并发的Transaction并不受影响（除非受数据库的内部锁的影响，因为某个锁可能是正在等待commit的transaction持有的）。
 
@@ -268,7 +268,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 我们再加入一个相关的**VDL**，其定义如下：
 >VDL：是截止到VCL的最近的一个mini transaction logic mini commit log reecord点（也是一个LSN，但必须是最后一个mini transaction里面的最后一个LSN）。
 
-因为mini transaction保证了B树的完整性（否则，如果有split和merge动作只完成一半，整个B树的遍历traverse会出错，即mini transaction定义了一连串split和merge页面动作，以保护后续的其他事务对B树可以安全遍历）。而一个mini transaction形成的多个（最少可以一个）redo log records是一个整体，这里面的最后一个LSN，相当于逻辑上的mini transaction logic mini commit log recoord。而VDL就是这样一个logic mini commit log reecord，它最接近VCL。
+因为mini transaction保证了B tree的完整性（否则，如果有split和merge动作只完成一半，整个B tree的遍历traverse会出错，即mini transaction定义了一连串split和merge页面动作，以保护后续的其他事务对B tree可以安全遍历）。而一个mini transaction形成的多个（最少可以一个）redo log records是一个整体，这里面的最后一个LSN，相当于逻辑上的mini transaction logic mini commit log recoord。而VDL就是这样一个logic mini commit log reecord，它最接近VCL。
 
 细节我不描述，详细可参考InnoDB的mini transaction的说明。你只需要知道：
 
@@ -276,7 +276,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 * mini transaction没有roll back概念，所以一个Transaction如果roll back，只不过是又产生了新的mini transactionn并执行
 * 一个mini transaction形成的redo log records，中间不会被另外一个mini transaction插入，即从redo log上看，mini transaction log records是连续的
 * 一个mini transaction，一旦开始，一定要完成。这包括：中间执行如果需要锁不会产生死锁（执行前开始前获得的锁可以不算，因为可以发现死锁然后roll back），中间如果splt/merge的页，不会让其他事务读取（比如：通过Lock和Latch实现），即它是个atomic动作，要么开始前do nothing，要么全部完成do all，而且中间执行不受外界影响同时也不对外界的其他事务产生非法错误的影响
-* 当一个mini transaction完成后，它保证其他事务可以安全地浏览整个B树
+* 当一个mini transaction完成后，它保证其他事务可以安全地浏览整个B tree
 * 一个mini transaction可以产生最少一条，也可以是多个redo log record，这里面的最后一条相当于mini transaction的logic mini commit
 * VDL不过是一个logic mini commit，它最接近VCL
 * VDL小于等于VCL，因此像VCL一样，能保证截止到VDL这个LSN，存储上的page数据是肯定存在的
@@ -313,7 +313,7 @@ Aurora的论文，是用VDL做保证判断。但我个人的理解，对于maste
 
 其核心原理在于：在master上，当用这个page LSN <= VCL（or VDL）的约束去evict某个页面page时，我们保证master从存储层读到的page（而且是存储层计算获得的最新up-to-now的page数据），一定是当时evict时的数据状态，然后，我们接着对这个已经存在DB cache内存的page进行操作时（对应了后续产生的redo log record for this page），一定是一致的。这个包括所有针对这个页面的任何写操作，如update、merge、split、delete等。
 
-你可能担心，如果evict然后read的page，此时不保证B树一致性（traverse会出错），怎么办？对于master，应该没有这个问题，因为master应该设置了相关的锁，保证这些page不会被其他事务访问到，从而维护B树的一致性（读出page且当时B树不一致的事务应该是写且上锁的事务，即当时导致B树不一致的事务，它应该继续工作，将后面的page补齐，从而在本mini transaction里最终让B树保证一致性）。注意：这个仅对Aurora master有效，对于Aurora slave，其实现机理不同，不能通过VCL保证B树一致性（请继续阅读，直到《slave的读read》）。
+你可能担心，如果evict然后read的page，此时不保证B tree一致性（traverse会出错），怎么办？对于master，应该没有这个问题，因为master应该设置了相关的锁，保证这些page不会被其他事务访问到，从而维护B tree的一致性（读出page且当时B tree不一致的事务应该是写且上锁的事务，即当时导致B tree不一致的事务，它应该继续工作，将后面的page补齐，从而在本mini transaction里最终让B tree保证一致性）。注意：这个仅对Aurora master有效，对于Aurora slave，其实现机理不同，不能通过VCL保证B tree一致性（请继续阅读，直到《slave的读read》）。
 
 在《Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases》论文中，我人为下面的话是有错的：
 
@@ -346,11 +346,11 @@ latest change to the page) is greater than or equal to the VDL.
 
 因为数据库的写操作，有mini transaction的约束。
 
-什么是mini transaction的约束，简而言之，就是为了保证整个B树的一致性，一些record log record，必须连续且原子地执行，否则，会导致B树的不一致而引起的非法错误。试想一下，一个tuple的插入、删除和修改，都可能导致B树的页的分裂split和合并merge，因为牵扯到多个页page，它们必须一起完成。否则，做到一半事务暂停（比如：线程休眠），那么其他事务如果遍历此B树，就会导致非法。
+什么是mini transaction的约束，简而言之，就是为了保证整个B tree的一致性，一些record log record，必须连续且原子地执行，否则，会导致B tree的不一致而引起的非法错误。试想一下，一个tuple的插入、删除和修改，都可能导致B tree的页的分裂split和合并merge，因为牵扯到多个页page，它们必须一起完成。否则，做到一半事务暂停（比如：线程休眠），那么其他事务如果遍历此B tree，就会导致非法。
 
 在InnoDB里定义了mini transaction，就是为了这个目的。这个mini transaction的执行，必须是原子的，即中间不可打断（除非crash）。
 
-因此，当从master传过来的redo log进行apply到slave本机时，我们必须原子性地执行一个个mini transaction。所以，在slave上这个mini transaction的apply，是一个类似stop the world的操作（类比Java的GC），这时，其他read only transaction for slave必须停下来，等这个redo log records of one (or last one) mini transaction完成。只有这个atomic apply完成后，read only transaction for slave才能唤醒，并且并发地继续执行，因为这时，B树是一致的，不会引起这些read only transction for slave遍历B树时，发现一个broken B tree，从而导致非法。
+因此，当从master传过来的redo log进行apply到slave本机时，我们必须原子性地执行一个个mini transaction。所以，在slave上这个mini transaction的apply，是一个类似stop the world的操作（类比Java的GC），这时，其他read only transaction for slave必须停下来，等这个redo log records of one (or last one) mini transaction完成。只有这个atomic apply完成后，read only transaction for slave才能唤醒，并且并发地继续执行，因为这时，B tree是一致的，不会引起这些read only transction for slave遍历B tree时，发现一个broken B tree，从而导致非法。
 
 Aurora解决这个问题的方法很简单，master将redo log按mini transaction分割，按chunk方式（即不允许发送一半的mini trannsaction redo log records）发过给slave，因为redo log里，任何一个在master上的mini transaction形成的redo log records，中间都绝对不会出现其他mini transaction生成的redo log record，即master在redo log的生成中，已经保证了，它是按mini transaction连续的。
 
@@ -358,14 +358,14 @@ Aurora解决这个问题的方法很简单，master将redo log按mini transactio
 
 那么slave上，如果其DB cache里没有对应的page，是否需要到存储层去读出其初值，然后进行apply呢？
 
-答案是：不用。因为我们的目的是保证B树的一致性，如果此page不在slave的DB cache里，我们无需apply，也一样保证B树的一致性（slave假设未来不在其DB cache里的page，可以从存储层读到绝对一致的page）。
+答案是：不用。因为我们的目的是保证B tree的一致性，如果此page不在slave的DB cache里，我们无需apply，也一样保证B tree的一致性（slave假设未来不在其DB cache里的page，可以从存储层读到绝对一致的page）。
 
 这带来什么好处？这样，所有在slave的apply工作，都是针对内存而去，没有IO（除了undo log，但undo log的落盘很快），这将使slave的atomic apply for all redo log records of one mini transactionn这个动作的cost非常低，从而使stop the world的代价绝对小，从而让read only transactions for slave可以更早地进入下一步并发工作，从而带来整个slave的吞吐Throughput得到提高。
 
 slave write的意义何在？
 
 ```
-slave write，相当于照搬了master某个内存快照，但只作用于slave内存里的对应的page，而且保证了B树的一致性
+slave write，相当于照搬了master某个内存快照，但只作用于slave内存里的对应的page，而且保证了B tree的一致性
 ```
 
 但是，你会想到一个问题，如果read only transaction在slave上执行时，需要一个page，而这个page不在DB cache，它难道不需要到存储层去读盘吗？
@@ -382,7 +382,7 @@ slave write，相当于照搬了master某个内存快照，但只作用于slave�
 
 首先，和上面的《master的读read》分析一样，slave不可以拿VCL之后的page，即不可以拿Storage node还无法形成的page。
 
-其次，我们在《slave的同步（write for slave）》里分析了，slave上的read only transction，还必须受mini transaction这个约束。即如果我们从Storage node拿到的up-to-now的page（因为其截止点是Storage node看到的VCL），不能保证B树的一致性，那么会让read only transaction遍历B树时非法。所以，我们必须拿截止到某个VDL的页面。
+其次，我们在《slave的同步（write for slave）》里分析了，slave上的read only transction，还必须受mini transaction这个约束。即如果我们从Storage node拿到的up-to-now的page（因为其截止点是Storage node看到的VCL），不能保证B tree的一致性，那么会让read only transaction遍历B tree时非法。所以，我们必须拿截止到某个VDL的页面。
 
 最后，slave从存储层拿到的页面，应该和那个时刻（即slave write完成的最后一个LSN）master里面的DB cache完全一模一样的数据。
 
@@ -412,7 +412,7 @@ slave是异步地接收master的redo log，所以，slave认为的VDL和master�
 
 解决方法也很简单：在所有的slave中，总有一个最小的read only transaction，它起始的read snapshot是基于某个slave VDL，对于这个最小的VDL，它之前的redo log records，Storage node都不用保存（因为未来发来的slave VDL参数只可能比这个大）。而随着read only transaction for slave的结束，这个slave VDL一定是向前推进的（slave VDL会越来越大）。这个不断推进的最小的slave VDL，在Aurora里，被叫做Protection Group Minimum Read Point LSN (PGMRPL)。master和所有的slave交互，获得这个PGMRPL，然后发给Storage nodes，然后Storage node就可以根据PGMRPL，去做相关的清理purge工作，即从Storage node内存里的链表里，删除PGMRPL之前的redo log record，还可以删除相应的磁盘page image，也就是说，Storage node可以做purge或GC了。
 
-补注：再解释一下，为什么master的读可以只受VCL的约束，而slave却要受VDL的约束，是因为master上的事务，是真事务，是有锁保障其安全的，即使某个时刻B树不一致，因为master的锁机制，它保护不一致的B树，然后再继续执行的mini transaction中修补这个不一致同时防止其他事务读到这个broken B tree（只需要保护B树里的broken part）。但slave上，并不是真正的transaction在执行，slave write只是apply atomic redo records from master，slave只有apply时，才能用stop the world的方式（即slave并不用真正的事务锁），保证B树由不一致转化为一致，如果中间切换read only transaction for slave来执行，就打破了这个atomic约束而且没有真正的写事务锁来保护，让read only transaction for slave可能遍历到不一致的B树。
+补注：再解释一下，为什么master的读可以只受VCL的约束，而slave却要受VDL的约束，是因为master上的事务，是真事务，是有锁保障其安全的，即使某个时刻B tree不一致，因为master的锁机制，它保护不一致的B tree，然后再继续执行的mini transaction中修补这个不一致同时防止其他事务读到这个broken B tree（只需要保护B tree里的broken part）。但slave上，并不是真正的transaction在执行，slave write只是apply atomic redo records from master，slave只有apply时，才能用stop the world的方式（即slave并不用真正的事务锁），保证B tree由不一致转化为一致，如果中间切换read only transaction for slave来执行，就打破了这个atomic约束而且没有真正的写事务锁来保护，让read only transaction for slave可能遍历到不一致的B tree。
 
 ## 七、我猜测的Storage node的数据结构
 
