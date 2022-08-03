@@ -263,8 +263,9 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 * 一个Transaction是由多个mini transaction组成的（包含其roll back过程）
 * mini transaction没有roll back概念，所以一个Transaction如果roll back，只不过是又产生了新的mini transactionn并执行
 * 一个mini transaction形成的redo log records，中间不会被另外一个mini transaction插入，即从redo log上看，mini transaction log records是连续的
-* mini transaction能保证B树是一致的，避免B树split和merge页面page时，带来的traverse非法错误问题，所以只要每个mini transaction的执行中间不中断（不包括开始的锁获得、以及DB cache page的磁盘加载、死锁会导致roll back），对于其他事务而言，只要一个mini transaction是atomic执行的，其他事务继续浏览B树都是安全的
-* mini transaction最少可以一条，也可以是多个redo log record，这里面的最后一条相当于mini transaction的logic mini commit
+* 一个mini transaction，一旦开始，一定要完成。这包括：中间执行如果需要锁（执行开钱前获得的锁可以不算）不会产生死锁，中间如果splt/merge的页，不会让其他事务读取（比如：通过Lock和Latch实现），即它是个atomic动作，要么开始前do nothing，要么全部完成do all，而且中间那结果不受外界影响
+* 当一个mini transactio完成后，它保证其他事务可以安全地浏览整个B树
+* 一个mini transaction可以产生最少可以一条，也可以是多个redo log record，这里面的最后一条相当于mini transaction的logic mini commit
 * VDL不过是是一个logic mini commit，它最接近VCL
 * VDL小于等于VCL，因此像VCL一样，能保证截止到VDL这个LSN，存储上的page数据是肯定存在的
 
