@@ -62,11 +62,11 @@ Aurora只有一个Computing node作为master对外服务（注意：随后的补
 
 * master的redo log，无需本地存盘，但undo log需要本地存盘。
 
-* master和slave的通信（只同步write），即有redo log，也有undo log，但没有page直接传送。master和slave之间Storage node，不需要binlog的传输，即master和slave之间是物理同步（redo，redo是针对B tree具体page的物理操作记录），而不是逻辑同步（MySQL binlog里的信息是逻辑操作信息，即SQL语句或针对某个tuple的write）
+* master和slave的通信（只同步write），即有redo log，也有undo log，但没有page直接传送。master和slave之间同步，不需要binlog的传输，即master和slave之间是物理同步（redo，redo是针对B tree具体page的物理操作记录），而不是逻辑同步（MySQL binlog里的信息是逻辑操作信息，即SQL语句或针对某个tuple的write）
 
 * slave需要对undo log进行本地存盘，但对于redo log，无需本地存盘。
 
-* master和slave如果请求的page不在DB cache（即本机的内存）里，它们都是直接到存储层，通过网络请求获得此page。
+* master和slave如果请求的page不在DB cache（即本机的内存）里，它们都是直接到存储层，通过网络请求某个Storage node，获得此page。
 
 注：本文忽略Aurora对于MySQL frm files文件传送，因为不重要，只相当于某些系统级的meta data的改变。
 
@@ -74,7 +74,9 @@ Log我们还必须详细解释，请接着往下看《Log的妙趣》。
 
 ## 二、Log的妙趣
 
-我们将数据库简化成一个字符串值，比如：初始值是，I am Tony。然后我们的事务Transaction修改数据库，加三个词word，先改写为: I am Tony coding for world。然后再增加两个word，改写为：I am Tony coding for world in China。这可以是一个事务分两次执行，也可以是两个事务并发执行（假定追加两个词word的并发Transaction的修改效果，在时间上是后发生）。
+我们将数据库简化成一个字符串值，比如：初始值是，I am Tony。
+
+然后我们的事务Transaction修改数据库，加三个词word，先改写为: I am Tony coding for world。然后再增加两个word，改写为：I am Tony coding for world in China。这可以是一个事务分两次执行，也可以是两个事务并发执行（假定追加两个词word的并发Transaction的修改效果，在时间上是后发生）。
 
 我们将每个修改动作作为Log record记录下来，这样上例中就存在两个Log record，分别是a和b：
 
@@ -103,7 +105,7 @@ Log我们还必须详细解释，请接着往下看《Log的妙趣》。
 
 数据库处理遵循上面的原则，即将修改动作log record记录到redo log并存盘。这样，即使数据库终值没有及时存盘（掉电或数据库进程被杀），我们一样可以通过磁盘上的数据库初值，再加上磁盘上的redo log，获得正确的数据库终值。
 
-数据库只所以用redo存盘，是因为整个数据库存盘代价太大（cost is big）。试想一下这个字符串初值长达100G大小。而redo log record不大，但历史（比如：一天）合起来的log record以及对应的DB会很大。所以，我们要redo不断及时存盘（而且是连续的追加方式，无需修改前面的存盘内容，这样磁盘工作效率特别高），而DB就可以适当延时存盘，可以部分存盘（part dirty pages flush，比如：100G的数据库，按16K一个page，分别存盘，因为实际上MySQL的redo log record就是针对具体某个page），可以同一个page被重复多次存盘，也可以合并存盘（check point）。
+数据库只所以用redo存盘，是因为整个数据库存盘代价太大（cost is big，试想一下这个字符串初值长达100G大小）。而redo log record不大（因为实际上MySQL每个log record只针对一个page的修改），但历史（比如：一天）合起来的log record以及对应的DB会很大。所以，我们要redo里的log records不断及时存盘（而且是连续的追加方式，无需修改前面的存盘内容，这样磁盘工作效率特别高），而DB就可以适当延时存盘：DB可以部分存盘（part dirty pages flush，比如：100G的数据库，按16K一个page，分别存盘），可以同一个page被重复多次存盘，也可以合并存盘（check point）。
 
 因此：
 
