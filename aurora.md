@@ -254,9 +254,17 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 注意：Aurora master实现VCL计算时，不是通过保存所有的redo record log记录的状态进行的，它只要收集所有Storage nodes的redo log record的连续状态，然后简单计算即可获得这个VCL。这样一是简化了master上的状态保存状态，二是可以保证六台Storage node（如果都活的话）都满足VCL，或者至少哪4台Storage node满足VCL。尽管这个通过Storage nodes汇报而计算获得的VCL可能比如果master全部本地缓存全部状态而得到的值要低，但这个VCL已经足够了。
 
 我们再加入一个相关的**VDL**，其定义如下：
->VDL：是截止到VCL的最近的一个mini commit log reecord点（也是一个LSN，但必须是mini transaction commit类型）。
+>VDL：是截止到VCL的最近的一个mini transaction logic mini commit log reecord点（也是一个LSN，但必须是mini transaction的最后一个LSN）。
 
-因为mini transaction保证了B树的完整性（否则，如果有split和merge动作，整个B树的遍历traverse会出错），即它是一个保证B树完整性的最接近VCL的LSN。细节我不描述，详细可参考InnoDB的mini transaction的说明。你只需要知道，它小于等于VCL，因此像VCL一样，能保证数据是最新的，同时，它也能保证B树是一致的，避免B树split和merge页面page时，带来的traverse非法错误问题。
+因为mini transaction保证了B树的完整性（否则，如果有split和merge动作只完成一半，整个B树的遍历traverse会出错，即mini transaction定义了一连串split和merge页面动作，以保护后续的其他事务对B树可以安全遍历），即mini transactionn是保证B树一致性的。而一个mini transaction形成的多个（最少可以一个）redo log records是一个整体，这里面的最后一个LSN，相当于逻辑上的mini transaction logic mini commit log recoord。而VDL就是这样一个logic mini transaction mini commit LSN，它最接近VCL。
+
+细节我不描述，详细可参考InnoDB的mini transaction的说明。你只需要知道：
+
+* 一个用户事务是由多个mini transaction组成的（包含其roll back过程）
+* 一个mini transaction形成的redo log records，中间不会被另外一个mini transaction插入，即从redo log上看，mini transaction log records是连续的
+* mini transaction能保证B树是一致的，避免B树split和merge页面page时，带来的traverse非法错误问题，所以只要每个mini transaction的执行中间不中断（不包括开始的锁获得、以及DB cache page的磁盘加载、死锁会导致roll back，即新的mini transaction的形成），对于其他事务而言，只要一个mini transaction是atomic执行的，其他事务继续浏览B树都是安全的
+* mini transaction最少可以一条，所以，最后一条相当于其的logic mini commit（mini transaction没有roll back概念）
+* VDL小于等于VCL，因此像VCL一样，能保证截止到VDL这个LSN，存储上的page数据是肯定存在的
 
 ## 四、master的读read
 
