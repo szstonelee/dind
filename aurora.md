@@ -163,23 +163,23 @@ undo log还带来一个MVCC的好处。
 
 ### 3-1、quorum write的实现
 
-quorum是一个洋文，它的意思是选举里，必须达到法定人数，才算有效。对于Aurora，它有6个copy，因此系统设定quorum = 4。即4个Storage nodes写成功，才算是quorum write写成功的前提条件。
+quorum是一个洋文，它的意思是选举里，必须达到法定人数，才算有效。对于Aurora，它有6个copy，因此系统设定quorum = 4。即4个Storage nodes写成功，才算是quorum write写成功的前提条件（**注意：还不算写成功**）。
 
-前面的描述知道，计算层和存储层时通过网络通信的，而且都是独立的机器node，所以，站在发起write的master眼里，是收到Storage node的response，这个Storage node才算成功，而且收集了至少4个成功返回response的Storage node，master才认为这是写成功的必要条件（注意：还不算写成功）。
+前面的描述知道，计算层和存储层时通过网络通信的，而且都是独立的机器node，所以，站在发起write的master眼里，是收到Storage node的response，这个Storage node才算成功，而且收集了至少4个成功返回response的Storage node，master才认为这是写成功的必要条件。
 
 我们又知道，Aurora里，master只发送redo log给Storage node，这个redo log在Computing node内存里，是按LSN顺序不断尾部追加redo log record的，那么Aurora如何处理后面这两个麻烦：其一. 异步的通信；其二，分布的6个Storage nodes。
 
 Aurora的解决办法是：
 
-1. 并不强求上一个redo log record写成功，才发下一个redo log record。即可以乱序
+1. 并不强求上一个redo log record写成功，才发下一个redo log record，即可以乱序。
 
 2. 如果某个redo log record暂时没有收集到4个response，就重试重发，因为假设整个存储层是永久有效的（见上文描述），所以，这个write也是最终能保证收集4个response。
 
-3. 当某个redo log record收集了4个response，可以不再给剩下的2个node发write请求，因为系统允许至多两个Storage node失败（例如：停机维护）
+3. 当某个redo log record收集了4个response，可以不再给剩下的2个node发write请求，因为系统允许至多两个Storage node失败（例如：停机维护）。
 
-4. 当之前的所有的redo log record都收集了4个response，当前这个redo log record收集了4个response才算当前这个redo log record写成功，即还必须有之前连续的约束
+4. 当之前的所有的redo log record都收集了至少4个response，当前这个redo log record收集了至少4个response（即必要和前提条件），才算当前这个redo log record写成功，即还必须有之前的redo log record连续写成功的约束。
 
-5. redo log record对应的动作，是否执行，和这个record是否写成功，没有关系，除非这个动作是commmit。即非commit动作不受quorum write的影响（commit的影响请见下面的《对于computing node (master) 的麻烦》）
+5. redo log record对应的动作，master上是否执行，和这个record是否写成功，没有关系，除非这个动作是commmit。即非commit动作不受quorum write的约束和影响（commit的影响请见下面的《对于computing node (master) 的麻烦》）。
 
 补注：quorum字面上看（以及很多其他系统的实现），并不一定强制要求超过半数。Aurora对于写的quorum要求是4，是有特别原因的，详细不作解释，看论文。
 
@@ -191,21 +191,23 @@ Aurora的解决办法是：
 
 所以，Aurora的quorum write的乱序发送，对于吞吐Throughput有很大好处，因为少了前后的约束。
 
+特别是，非commit的redo log record里的动作，在master上可以直接产生效果，不受quorum write是否成功的约束，这样，可以让master的事务执行基本不受网络和存储的约束，能够很好地并发和快速地执行，这也就意味，master上的DB cache页面内容，可以远远领先于存储层对应的页面内容。注：为了防止超前太多，Aurora加了一个LAL约束，LAL = 10 million，即不能跑快超过千万。
+
 ### 3-3、quorum write的麻烦和如何解决
 
 #### 对于Storage node的麻烦
 
-Storage node收到master的redo log record，这样，就可以根据本地的存储，以及这个redo，形成未来的对应的值。
+Storage node收到master的redo log record，这样，就可以根据本地的存储（page的初值），以及这个redo，形成未来的对应的值。
 
-但我们上面的分析知道，这个需要保证redo log record是连续，无中间漏洞的。
+但在《Log的妙趣》里的分析知道，这个需要保证redo log record是连续，无中间漏洞的。
 
-但quorum write的模式决定了，Storage node收到的redo log record可能是中间有漏洞的，而且master有可能一直都不发来这个弥补漏洞的record。
+但quorum write的模式决定了，Storage node收到的redo log record可能是中间有漏洞的，而且master有可能一直都不发来对应这个漏洞的record。
 
 所以，对于Storage node，弥补这个漏洞，需要两点:
 
 1. 需要识别哪些是漏洞
 
-2. 需要到其他Storage node里，将这些丢失的record补回来
+2. 需要到其他Storage node里，将这些丢失的record补回找到，补齐漏洞
 
 先看如何识别漏洞:
 
@@ -215,7 +217,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 ```
 我们简单做一个Sort，然后遍历，马上知道漏洞是4和8。
 
-但是，Aurora不是这样处理的（因为LSN并不是严格增1连续的，即continuous，它只保证唯一和递增，实际上，LSN是对应record在redo里的字节偏移量，byte offset），所以，Aurora用了另外一个技术，链表，即每个redo log record，都记录了前一个redo log record的LSN。
+但是，Aurora不是这样处理的（因为LSN并不是严格增1连续的，即continuous，它只保证唯一unique和递增increasing，实际上，LSN是对应record在redo里的字节偏移量，byte offset），所以，Aurora用了另外一个技术，链表，即每个redo log record，都记录了前一个redo log record的LSN，即prev LSN。
 
 这样，Storage node可以简单通过prev LSN，就知道是否有漏洞和漏洞是哪些LSN。
 
@@ -237,15 +239,15 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 从前面的分析，我们得知，redo log record必须保证次序完整，才能保证数据库的最终一致性。
 
-站在master角度，稍有麻烦，因为发送是乱序的而且可以重发，所以，某个时刻，不能保证先发先到。因此，master必须记录发送队列queue，以及接受状态（某个recoord收到几个response，注意：实际实现为了效率，是按批packet发送的，所以只需记录packet的状态，我们这里用record作为单位，是为了简化理解）。但是，经过一段时间，master肯定可以收集到所有发出的redo log record的足够（大于或等于4）的回应，只要master不死（crash），一直活着的master，能保证截止到某一个时刻（即某个LSN），前面的所有的redo log record是连续写成功的。
+站在master角度，稍有麻烦，因为发送是乱序的而且可以重发，所以，某个时刻，不能保证先发先到。因此，master必须记录发送队列queue，以及接收状态（某个recoord收到几个response，注意：实际实现为了效率，是按批packet发送的，所以只需记录packet的状态，我们这里用record作为单位，是为了简化理解）。但是，经过一段时间，master肯定可以收集到所有发出的redo log record的足够（大于或等于4）的回应response，只要master不死（crash），一直活着的master，能保证截止到某一个时刻（即某个LSN），前面的所有的redo log record是连续写成功的。
 
-因此，一直有效（活的）master可以保证redo log record的quorum write，是可以做到：一直连续成功的，而且不断推进的，只是要异步等待一点时间。因此，master可以根据写存储成功，不断推进master里的并发事务处理。
+因此，一直有效（活的）master可以保证redo log record的quorum write，是可以做到：一直连续成功的，而且不断推进的，只是要异步等待一点时间。因此，master可以根据此，判定写存储成功，不断推进master里的并发事务处理并相信相关的落盘保证。
 
-我们来分析一下commit的要求：
+我们来分析一下commit的特别要求：
 
 传统的MySQL，在收到App的commit请求时，必须先生成对应的redo log record（先在内存里，即redo buffer），然后必须保证写盘成功（flush to disk，同时也保证之前的redo log reccord和相关的undo record log也写盘成功），然后才能接着处理后续的相关内容内容，包括解锁、改变Transaction状态（从transaction list里删除此Transaction ID）和返回commit成功信息给客户App。
 
-如果到了Aurora这里，生成的commit redo log record收到了Storage node的四个response，虽然此record被标识某种成功了（success of collecting quorum response，即master不用再针对这个record，向其他Storage node发送网络包了），但仍不算write success，必须保证前面的所有的乱序的redo log record也标识成功（success of collecting quorum response），此commit redo record才算写成功（success of quorum write），然后才能接着处理解锁、改transaction list以及回应App成功这些动作。
+如果到了Aurora这里，生成的commit redo log record收到了Storage node的四个response，虽然此record被标识某种成功了（success of collecting quorum response，即master不用再针对这个record，向其他Storage node发送网络包了），但仍不算write success，必须保证前面的所有的乱序和异步发送的redo log record也标识成功（success of collecting quorum response），此commit redo record才算写成功（success of quorum write），然后才能接着处理解锁、改transaction list以及回应App成功这些动作。
 
 但注意：其他非commit类型的redo log record的动作，Aurora的comupting node可以继续做，不受任何约束。那些修改某个tuple（对应的page）里的相关内容，可以继续生成redo log record（并作为一个Mini transaction写入到redo buffer）里，并执行这些动作的相关效果，包括且不限于下面这些动作类型：从存储层读某page，修改DB cache里的某个page，分裂和合并（split or merge）某些page以保证整个B树的完整一致，等等。
 
