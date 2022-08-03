@@ -360,6 +360,12 @@ Aurora解决这个问题很简单，master将redo log按mini transaction分割�
 
 这带来什么好处？这样，所有在slave的apply工作，都是针对内存而去，没有IO（除了undo log，但undo log的落盘很快），这将使slave的atomic apply for all redo log records of one mini transactionn这个动作的cost非常低，从而使stop the world的代价绝对小，从而让read only transactions for slave可以更早地进入下一步并发工作，从而带来整个slave的吞吐Throughput得到提高。
 
+slave write的意义何在？
+
+```
+slave write，相当于照搬了master某个内存快照，但只作用于slave内存里的对应的page。
+```
+
 但是，你会想到一个问题，如果read only transaction在slave上执行时，需要一个page，而这个page不在DB cache，它难道不需要到存储层去读盘吗？
 
 当然要去存储层读，但怎么读，是个非常tricky的东西，请往下看。
