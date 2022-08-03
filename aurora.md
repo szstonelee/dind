@@ -64,7 +64,7 @@ Aurora只有一个Computing node作为master对外服务（注意：随后的补
 
 * slave需要对undo log进行本地存盘，但对于redo log，无需本地存盘。
 
-* master和slave如果请求的page不在DB cache里，它们都是直接到存储层，通过网络请求获得此page。
+* master和slave如果请求的page不在DB cache（即本机的内存）里，它们都是直接到存储层，通过网络请求获得此page。
 
 注：本文忽略Aurora对于MySQL frm files文件传送，因为不重要，只相当于某些系统级的meta data的改变。
 
@@ -101,7 +101,7 @@ Log我们还必须详细解释，请接着往下看《Log的妙趣》。
 
 数据库处理遵循上面的原则，即将修改动作log record记录到redo log并存盘。这样，即使数据库终值没有及时存盘（掉电或数据库进程被杀），我们一样可以通过磁盘上的数据库初值，再加上磁盘上的redo log，获得正确的数据库终值。
 
-数据库只所以用redo存盘，是因为整个数据库存盘代价太大（cost is big）。试想一下这个字符串初值长达100G大小。而redo log record不大，但历史（比如：一天）合起来的log record以及对应的DB会很大。所以，我们要redo不断及时存盘（而且是连续的追加方式，无需修改前面的存盘内容，这样磁盘工作效率特别高），而DB就可以适当延时存盘，可以部分存盘（part dirty pages flush，比如：100G的数据库，按16K一个page，分别存盘，如果redo log record也是针对具体page而去的话），可以同一个page被重复多次存盘（in-place update），也可以合并存盘（check point）。
+数据库只所以用redo存盘，是因为整个数据库存盘代价太大（cost is big）。试想一下这个字符串初值长达100G大小。而redo log record不大，但历史（比如：一天）合起来的log record以及对应的DB会很大。所以，我们要redo不断及时存盘（而且是连续的追加方式，无需修改前面的存盘内容，这样磁盘工作效率特别高），而DB就可以适当延时存盘，可以部分存盘（part dirty pages flush，比如：100G的数据库，按16K一个page，分别存盘，因为实际上MySQL的redo log record就是针对具体某个page），可以同一个page被重复多次存盘，也可以合并存盘（check point）。
 
 因此：
 
@@ -113,7 +113,7 @@ LSN是一个重要的定义，我们再做强调
 
 >LSN: log sequence number，是指每个redo log record的唯一标识，它是递增的，标识了数据库在时间上的连续的修改动作，即按照这个LSN的顺序，不遗漏地进行apply，我们总能从数据库的某个初值，达到未来截止某个时刻的绝对一致的终值。
 
-上面对于数据库有一个麻烦的地方叫：后悔。后悔的意思：Transactionn允许abort，数据库的值必须roll back到前面一个值，比如上例中，我们有两个Transaction，一个做动作a，一个做动作b，但允许Transaction a后悔，不commit，而是roll back。
+对于数据库有一个麻烦的地方叫：后悔。后悔的意思：Transactionn允许abort，数据库的值必须roll back到前面一个值，比如上例中，我们有两个Transaction，一个做动作a，一个做动作b，但允许Transaction a后悔，不commit，而是roll back。
 
 如果根据redo，我们发现，实际上，我们只要将redo log record里面的动作反着做，我们就可以得到修改的前值。为了计算简便，我们做一个对应的undo record log（如果是动作是完全覆盖式，则必须需要undo log），如下
 ```
@@ -133,6 +133,8 @@ DB in disk:        I am Tony          I am Tony                           I am T
 
 所以，当前内存的DB（或者更准确而言，是DB里的记录，tuple），必须有一个指针，指向对应的undo log record。然后，历史的undo record log，必须形成一个链表，构成历史遍历，这时，任何一个Transaction需要roll back时，都可以从指针开始，遍历这个undo log record链表，然后回复到合适的值。
 
+undo log record形成链表，需要在其内容里，记录了链表里相关（即链表里的前一个）的undo log record的指针。
+
 我们不用对整个数据库，做成整体一个对象的redo log和undo log，如果这样，遍历代价太大。我们可以对整个数据库，按照tuple和page为单位，作为redo和undo的目标对象，然后形成相应的链表。这样，每个tuple都有自己对应的undo链表用于roll back，同时，每个tuple，都有对应的连续的redo log records（无需形成链表，只要前后时间保证），用于crash and recover时形成最终值并可以存盘。
 
 undo log还带来一个MVCC的好处。
@@ -151,7 +153,9 @@ undo log还带来一个MVCC的好处。
 
 1. undo log支持MVCC，因此可以支持各种Isolation级别的读写。
 
-2. 为了支持各种Isolation，除了需要undo log，还必须知道当时所有的Transaction（有写）的运行状态，即某个时刻的transaction list（实际实现是一个对transaction list的快照read view，read view用vector存储即可）。InnoDB里，只有写的Transaction才有Transaction ID（在第一个有写的SQL语句里分配），才会在transaction list里。read only tansaction是无Transaction ID的，不会出现在transaction list里。
+2. 为了支持各种Isolation，除了需要undo log，还必须知道当时所有的有写Transaction的运行状态，即某个时刻的transaction list。InnoDB里，只有写的Transaction才有Transaction ID（在第一个有写的SQL语句里分配），才会在transaction list里。read only tansaction是无Transaction ID的，不会出现在transaction list里。
+
+注：实际transaction list的运行情况，不是Transaction运行中，时时刻刻的针对这个全局数据的实时数据，而是一个叫read view的实现，即对当时的transaction list做一个snapshot拍照，然后用vector存储在Transaction本地。如果Transaction的Isolation被设置为REPEATABLE，那么只做一次read view拍照；如果是Isolation是READ COMMITTED，则事务中有读的每个SQL语句，都会形成一个read view。 
 
 注：上面的redo、undo范例中，是抽象模拟。实际对于任何一个field的更改，redo和undo都是记录整个field value。但是，由于一个tuple是由多个field组成，而redo和undo只记录被修改的field的值，所以，上面的抽象是可类比的，即某个tuple的整值，必须通过tuple初值，经过所有的redo log record计算获得最新值。而对应历史的旧值，或者roll back回到某个旧值，必须对undo log record进行遍历，
 
