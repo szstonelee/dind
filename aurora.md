@@ -34,7 +34,7 @@ Aurora基于MySQL(InnoDB)的改造，是一个分布式OLTP的关系型数据库
 
 Spanner是先考虑shard（比如：最少2个key就可以分布了），将数据分散到多个node上，然后执行数据处理时，预先用Distributed Transaction做了准备。
 
-而Aurora是先不考虑shard，即10G下，不需要多个segment。同时，做数据处理时，即使数据分布在多个segmeent上，也不需要Distribute Transaction考虑。即多个segment虚拟连接成好像一个独立的数据库存储空间（可以抽象成一个文件或一个tablespace，所有表table对应的clustered inxde和second index都在里面，即所有的B树），所以，我们仍然可以用B树对应的页page，以及任何一个page都只有唯一的Number（即Page No.）标识此page，只是Page No.需要根据node、segment进行一个相应的换算即可。
+而Aurora是先不考虑shard，即10G下，不需要多个segment。同时，做数据处理时，即使数据分布在多个segment上，也不需要Distribute Transaction考虑。即多个segment虚拟连接成好像一个独立的数据库存储空间（可以抽象成一个文件或一个tablespace，所有表table对应的clustered inxde和second index都在里面，即所有的B树），所以，我们仍然可以用B树对应的页page，以及任何一个page都只有唯一的Number（即Page No.）标识此page，只是Page No.需要根据node、segment进行一个相应的换算即可。
 
 后面分析时，为了简化理解，我们去除Aurora所使用的shard，即忽略segment的作用。我们简化成只有六个Storage nodes，然后有6个copy，每个copy在一个Storage node上。这对于整个Aurora系统分析，没有任何影响，但你必须理解，Aurora内部，是用segment做了shard的，而且存储集群不只限于6个Storage node。
 
@@ -56,7 +56,9 @@ Aurora只有一个Computing node作为master对外服务（注意：随后的补
 
 * master的写盘，只有redo log通信传输到存储层（注意：没有undo log到存储层），也没有page直接写盘（不管是网络上的存储层，还是master的本地磁盘，page写盘在论文里被叫做data落盘）
 
-* 因为没有page的落盘，所以，也就无需double write（存储层有相应的page落盘，但Storage node可以不使用double write，因为Storage node允许个别故障）。
+* master和slave因为没有page的落盘，所以，也就无需double write
+
+* 存储层有相应的page落盘，但存储层的page落盘，是根据redo计算获得的，Storage node可以不使用double write，因为Storage node允许个别故障。
 
 * master的redo log，无需本地存盘，但undo log需要本地存盘。
 
