@@ -155,7 +155,7 @@ undo log还带来一个MVCC的好处。
 
 2. 为了支持各种Isolation，除了需要undo log，还必须知道当时所有的有写Transaction的运行状态，即某个时刻的transaction list。InnoDB里，只有写的Transaction才有Transaction ID（在第一个有写的SQL语句里分配），才会在transaction list里。read only tansaction是无Transaction ID的，不会出现在transaction list里。
 
-注：实际transaction list的运行情况，不是Transaction运行中，时时刻刻的针对这个全局数据的实时数据，而是一个叫read view的实现，即对当时的transaction list做一个snapshot拍照，然后用vector存储在Transaction本地。如果Transaction的Isolation被设置为REPEATABLE，那么只做一次read view拍照；如果是Isolation是READ COMMITTED，则事务中有读的每个SQL语句，都会形成一个read view。 
+注：实际Transaction运行中，不需要实时针对这个transaction list的全局数据做查询，而是一个叫read view的实现，即对当时的transaction list做一个snapshot拍照，然后用vector存储在Transaction本地局部数据。如果Transaction的Isolation被设置为REPEATABLE，那么只做一次read view拍照；如果是Isolation是READ COMMITTED，则事务中有读的每个SQL语句，都会形成一个read view。 
 
 注：上面的redo、undo范例中，是抽象模拟。实际对于任何一个field的更改，redo和undo都是记录整个field value。但是，由于一个tuple是由多个field组成，而redo和undo只记录被修改的field的值，所以，上面的抽象是可类比的，即某个tuple的整值，必须通过tuple初值，经过所有的redo log record计算获得最新值。而对应历史的旧值，或者roll back回到某个旧值，必须对undo log record进行遍历，
 
