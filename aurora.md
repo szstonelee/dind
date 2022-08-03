@@ -2,11 +2,11 @@
 
 ## 预备知识
 
-建议你先大致读一下，下面的参考资料Reference。
+建议你先大致读一下，下面的参考资料Reference，特别是头两篇Amazon关于Aurora的两篇论文。
 
-你可以不用全部理解参考资料里的所有文字，或者认为它的每一句话都是对的（我个人认为Amazon的论文里都有错误），但是，对AWS Aurora有一个轮廓，有一些基本概念，特别是，带了很多的疑惑和问题再读本文，会有助于理解。
+你可以不用全部理解参考资料里的所有文字，或者认为它的每一句话都是对的（我个人认为Amazon的论文里有错误），但是，对AWS Aurora有一个轮廓，有一些基本概念，特别是，带了很多的疑惑和问题再读本文，会有助于理解。
 
-同时，读完本文，再回头去阅读参考资料，会有助于进一步理解参考资料，特别是AWS的原始论文。而且，本文也不是全面解读论文里的AWS，特别是segment shard、recover、membership change这些子命题，都被特别忽略了，因为我想聚焦在本文标题中所讨论的命题，因为我认为这对于理解AWS Aurora特别关键。
+同时，读完本文，再回头去阅读参考资料，会有助于进一步理解参考资料，特别是Amazon的原始论文。而且，本文也不是全面解读论文，特别是segment shard、recover、membership change、backup、performance这些子命题，都被特别忽略了，因为我想聚焦在本文标题中所讨论的命题，因为我认为这对于理解Aurora特别关键。
 
 当然，Tony作为本文作者，也可能犯错误，所以，请用批判的精神阅读本文。
 
@@ -18,9 +18,9 @@ Aurora基于MySQL(InnoDB)的改造，是一个分布式OLTP的关系型数据库
 
 传统MySQL，存储是单独的磁盘作为硬件支持，和整个数据库位于同一机器（machine or node）上。而Aurora，存储是用单独的机器实现，作为存储层独立存在，然后，通过网络和数据库其他层（即计算层）交互，以实现ACID的支持。
 
-计算层负责：客户端连接的管理、SQL语句的解析和执行计划（PLAN）的形成、并发事务Transaction的管理和隔离保证（Isolation）、大内存作为DB Cache（MySQL里又叫page pool或buffer pool）的管理。最后注意：计算机器（Computing node）也有本地磁盘，而且很重要（用于存储undo log），但整个的数据，并不存储于Computing node的本地磁盘上。
+计算层负责：计算机器（Computing node)负责，客户端连接的管理、SQL语句的解析和执行计划（PLAN）的形成、并发事务Transaction的管理和隔离保证（Isolation）、本地大内存作为DB Cache（MySQL里又叫page pool或buffer pool）的管理。最后注意：Computing node也有本地磁盘，而且很重要（用于存储undo log），但整个的数据，并不存储于Computing node的本地磁盘上。
 
-存储层负责：和传统MySQL类比，它就像一个磁盘，用于存储几乎所有的数据（除了undo log）。但是，因为使用了机器（Storage node），Storage node有自己的CPU、内存（相比Computing node不大）、以及本地的SSD磁盘（相比Computing node非常大）。因此，Storage node不仅仅是一个磁盘硬件，也就是说，它可以运行程序，接受来自Computing node发来的请求并进行处理，并且在自己的内存里，形成一些数据结构（HashMap、Queue等），和本地SSD磁盘一起，通过网络应答（Client/Server）的模式，对计算层提供存储服务。同时，Storage node之间，也通信（Gossip）。
+存储层负责：存储机器（Storage node），和传统MySQL类比，它就像一个磁盘，用于存储几乎所有的数据（除了undo log）。但是，因为使用了机器，Storage node有自己的CPU、内存（相比Computing node不大）、以及本地的SSD磁盘（相比Computing node非常大）。因此，Storage node不仅仅是一个磁盘硬件，也就是说，它可以运行程序，接受来自Computing node发来的请求并进行处理，并且在自己的内存里，形成一些数据结构（HashMap、Queue等），和本地SSD磁盘一起，通过网络应答（Client/Server）的模式，对计算层提供存储服务。同时，Storage node之间，也通信（Gossip）。
 
 ### 1-2、集中共享式的分布式存储
 
