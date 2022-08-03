@@ -48,21 +48,25 @@ Aurora只有一个Computing node作为master对外服务（注意：随后的补
 
 补注：
 
-1. Aurora后期也提供类似Postgres SQL的RDB支持，但较晚，本文只分析MySQL模式。
+1. Aurora后期也提供类似PostgresSQL的RDB支持，但较晚，本文只分析MySQL模式。
 
-2. Aurora后期也提供多Master的支持，但提供较晚，而且是基于前期单Master模式上改造的，本文只分析早期的单Master模式。
+2. Aurora后期也提供多Master（Multi Master）的支持，但提供较晚，而且是基于前期Single Master模式上改造的，本文只分析早期的Single Master模式。
 
 ### 1-4、落盘处理和相关log
 
-* master的写盘，只有redo log通信传输到存储层（注意：没有undo log到存储层），也没有page直接写盘（不管是网络上的存储层，还是master的本地磁盘）。
+* master的写盘，只有redo log通信传输到存储层（注意：没有undo log到存储层），也没有page直接写盘（不管是网络上的存储层，还是master的本地磁盘，page写盘在论文里被叫做data落盘）
+
+* 因为没有page的落盘，所以，也就无需double write（存储层有相应的page落盘，但Storage node可以不使用double write，因为Storage node允许个别故障）。
 
 * master的redo log，无需本地存盘，但undo log需要本地存盘。
 
-* master和slave的通信（只同步write），即有redo log，也有undo log，但没有page直接传送。
+* master和slave的通信（只同步write），即有redo log，也有undo log，但没有page直接传送。但master和slave之间，不需要binlog的传输，即master和slave之间是物理同步，而不是逻辑同步（MySQL binlog里的信息是逻辑信息，即SQL语句或针对某个tuple的write）
 
 * slave需要对undo log进行本地存盘，但对于redo log，无需本地存盘。
 
 * master和slave如果请求的page不在DB cache里，它们都是直接到存储层，通过网络请求获得此page。
+
+注：本文忽略Aurora对于MySQL frm files文件传送，因为不重要，只相当于某些系统级的meta data的改变。
 
 Log我们还必须详细解释，请接着往下看《Log的妙趣》。
 
