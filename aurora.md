@@ -249,22 +249,22 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 如果到了Aurora这里，生成的commit redo log record收到了Storage node的四个response，虽然此record被标识某种成功了（success of collecting quorum response，即master不用再针对这个record，向其他Storage node发送网络包了），但仍不算write success，必须保证前面的所有的乱序和异步发送的redo log record也标识成功（success of collecting quorum response），此commit redo record才算写成功（success of quorum write），然后才能接着处理解锁、改transaction list以及回应App成功这些动作。
 
-但注意：其他非commit类型的redo log record的动作，Aurora的comupting node可以继续做，不受任何约束。那些修改某个tuple（对应的page）里的相关内容，可以继续生成redo log record（并作为一个Mini transaction写入到redo buffer）里，并执行这些动作的相关效果，包括且不限于下面这些动作类型：从存储层读某page，修改DB cache里的某个page，分裂和合并（split or merge）某些page以保证整个B树的完整一致，等等。
+但注意：其他非commit类型的redo log record的动作，master可以继续做，不受任何约束。那些修改某个tuple（对应的page）里的相关内容，可以继续生成redo log record，并执行这些动作的相关效果，包括且不限于下面这些操作：从存储层读某page，修改DB cache里的某个page，分裂和合并（split or merge）某些page以保证整个B树的完整一致，等等。
 
-所以，quorum write的异步性和分布式，并不影响Computing node里的并发的事务的执行效率，除非到了commit这个特别阶段。而且，到了commit阶段，也只影响当前提交commit请求的transaction（和对应的某个数据库连接），其他并发的Transaction并不受影响（除非受数据库的内部锁的影响，因为某个锁可能是正在等待commit的transaction持有的）。
+所以，quorum write的异步性和分布式，并不影响master的并发的事务的执行效率，除非到了commit这个特别阶段。而且，到了commit阶段，也只影响当前提交commit请求的transaction（和对应的某个数据库连接），其他并发的Transaction并不受影响（除非受数据库的内部锁的影响，因为某个锁可能是正在等待commit的transaction持有的）。
 
 注意：read only transaction的commit不受quorum write success影响，因为read only commit没有生成redo log record（但read only transaction仍受数据库内部锁的约束，不过因为MVCC，锁的影响极小）。
 
 这里，Aurora引入一个重要的概念，**VCL**，其定义如下
 
->VCL: 就是Computing node（首先获得和唯一判定的：只能是master）看到的最后一个完成quorum write成功的redo log record（即最大的LSN），即保证之前的（LSN更小的）redo log record都已经quorum write成功。这个只要master简单记录redo log的发送和接受状态，然后经过简单计算可得。
+>VCL: 就是Computing node（首先获得和唯一判定的：只能是master）看到的最后一个完成quorum write成功的redo log record（即最大的quorum write成功的LSN），即保证之前的（LSN更小的）redo log record都已经quorum write成功。
 
-如果再转义一下，VCL就是针对存储层，落盘成功的最大的LSN，且保证之前的LSN全部落盘成功。
+如果再转义一下，VCL就是站在Computing node视角，针对存储层，落盘成功的最大的LSN，且保证之前的LSN全部落盘成功。
 
 注意：Aurora master实现VCL计算时，不是通过保存所有的redo record log记录的状态进行的，它只要收集所有Storage nodes的redo log record的连续状态，然后简单计算即可获得这个VCL。这样一是简化了master上的状态保存状态，二是可以保证六台Storage node（如果都活的话）都满足VCL，或者至少哪4台Storage node满足VCL。尽管这个通过Storage nodes汇报而计算获得的VCL可能比如果master全部本地缓存全部状态而得到的值要低，但这个VCL已经足够了。
 
 我们再加入一个相关的**VDL**，其定义如下：
->VDL：是截止到VCL的最近的一个mini transaction logic mini commit log reecord点（也是一个LSN，但必须是最后一个mini transaction的最后一个LSN）。
+>VDL：是截止到VCL的最近的一个mini transaction logic mini commit log reecord点（也是一个LSN，但必须是最后一个mini transaction里面的最后一个LSN）。
 
 因为mini transaction保证了B树的完整性（否则，如果有split和merge动作只完成一半，整个B树的遍历traverse会出错，即mini transaction定义了一连串split和merge页面动作，以保护后续的其他事务对B树可以安全遍历），即mini transactionn是保证B树一致性的。而一个mini transaction形成的多个（最少可以一个）redo log records是一个整体，这里面的最后一个LSN，相当于逻辑上的mini transaction logic mini commit log recoord。而VDL就是这样一个logic mini commit log reecord，它最接近VCL。
 
@@ -273,23 +273,23 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 * 一个Transaction是由多个mini transaction组成的（包含其roll back过程）
 * mini transaction没有roll back概念，所以一个Transaction如果roll back，只不过是又产生了新的mini transactionn并执行
 * 一个mini transaction形成的redo log records，中间不会被另外一个mini transaction插入，即从redo log上看，mini transaction log records是连续的
-* 一个mini transaction，一旦开始，一定要完成。这包括：中间执行如果需要锁不会产生死锁（执行前开始前获得的锁可以不算，因为可以发现死锁然后roll back），中间如果splt/merge的页，不会让其他事务读取（比如：通过Lock和Latch实现），即它是个atomic动作，要么开始前do nothing，要么全部完成do all，而且中间执行不受外界影响
-* 当一个mini transactio完成后，它保证其他事务可以安全地浏览整个B树
-* 一个mini transaction可以产生最少可以一条，也可以是多个redo log record，这里面的最后一条相当于mini transaction的logic mini commit
-* VDL不过是是一个logic mini commit，它最接近VCL
+* 一个mini transaction，一旦开始，一定要完成。这包括：中间执行如果需要锁不会产生死锁（执行前开始前获得的锁可以不算，因为可以发现死锁然后roll back），中间如果splt/merge的页，不会让其他事务读取（比如：通过Lock和Latch实现），即它是个atomic动作，要么开始前do nothing，要么全部完成do all，而且中间执行不受外界影响同时也不对外界的其他事务产生非法错误的影响
+* 当一个mini transaction完成后，它保证其他事务可以安全地浏览整个B树
+* 一个mini transaction可以产生最少一条，也可以是多个redo log record，这里面的最后一条相当于mini transaction的logic mini commit
+* VDL不过是一个logic mini commit，它最接近VCL
 * VDL小于等于VCL，因此像VCL一样，能保证截止到VDL这个LSN，存储上的page数据是肯定存在的
 
 ## 四、master的读read
 
-首先，正常情况下（非crash & recover阶段），那么，不管masster，还是slave，如果发现需要读的page不在DB cache里（cache miss），那么它只需要到一台Storage node去读，而且**不是quorum read**。注：crash & recover阶段的quorum read，对于读read，quorum是3，而不是4，因为这可以保证读到最新的值。
+首先，正常情况下（非crash & recover阶段），那么，不管masster，还是slave，如果发现需要读的page不在DB cache里（cache miss），那么它只需要到一台Storage node去读，而且**不是quorum read**。注：crash & recover阶段的quorum read，对于读read，quorum是3，而不是4，因为这可以保证读到最新的值，本文不详细讨论crash和recover。
 
 为什么？
 
-首先，quorum读的cost比一台读，要大不少，因为latency是最慢的那个node，网络带宽占用也大了几倍。
+首先，quorum read的cost比一台读，要大不少，因为latency是最慢的那个node，网络带宽占用也大了几倍。
 
 其次，没有必要。
 
-因为Computing node可以知道每个Storage node的完成情况，比如：是哪4台Storage node，保证完成VCL，它可以选择有此完备数据（complete）的其中的一台去读即可。而且，可以做到基本选择最快的那台Storage node去读（算法我不描述，看论文，或者想想sample latency seldomly这个思想即可）。
+因为Computing node可以知道每个Storage node的完成情况，比如：是哪4台Storage node，保证完成VCL，它可以选择有此完备（complete）数据的其中的一台去读即可。而且，可以做到基本选择最快的那台Storage node去读（算法我不描述，看论文，或者想想sample latency seldomly这个思想即可）。
 
 master只要保证一点，不要读到旧数据stale data即可。那什么是stale data？
 
@@ -297,7 +297,7 @@ master只要保证一点，不要读到旧数据stale data即可。那什么是s
 
 master想要获得page number = 101的一个数据，它开始是在内存里（DB cache），所以master可以自由修改它，并假设产生了三次修改，分别对应redo log record的LSN为5、7、8(还有一个LSN=6的record，但不是针对page 101的)。即Page 101在DB cache里对应的最新的修改的LSN = 8。
 
-这时，masster因为DB cache满了，需要淘汰（evict）一个page，然后选择了101这个page，随后，事务处理又需要这个page的数据，这时，master必须发出一个到存储层的请求（找那个最快的Storage node去读）。但上面分析了，因为quorum write是异步的，假设此时VCL=6（即LSN=7还是空洞），此时，从存储层读出的page数据就不对，是个stale data。
+这时，master因为DB cache满了，需要淘汰（evict）一个page，然后选择了101这个page，随后，事务处理又需要这个page的数据，这时，master必须发出一个到存储层的请求（找那个最快的Storage node去读）。但上面分析了，因为quorum write是异步的，假设此时VCL=6（因为LSN=7还是空洞），此时，从存储层读出的page数据就不对，是个stale data。
 
 对于传统MySQL以上不存在问题，因为传统MySQL的算法是：如果要evict某个page，并且发现这个page是dirty page，必须先写盘。未来从本地磁盘读出来，就不会出现stale data。即传统MySQL中，page 101 evict时，已经保证apply了LSN为5、7、8的up-to-now data，即LSN=8的page 101保证落盘，
 
@@ -307,9 +307,9 @@ master想要获得page number = 101的一个数据，它开始是在内存里（
 
 这时，Aurora的master，就可以放心地evict这个page，未来再需要了， 直接去读存储层的对应的page，由于VCL的保证，那么这个存储在存储层的page，一定是保证同步的up-to-now的page。
 
-Aurora的论文，是用VDL做保证判断。但我个人的理解，对于master，VCL就足够，但由于系统保证VDL小于等于VCL，所以，用VDL去做evict约束条件，没有任何问题。
+Aurora的论文，是用VDL做保证判断。但我个人的理解，对于master，VCL就足够，但由于VDL小于等于VCL，所以，用VDL去做evict约束条件，没有任何问题。
 
-其核心原理在于：当用这个page LSN <= VCL的约束去evict某个页面page时，我们保证master从存储层读到的page（而且是存储层计算获得的最新up-to-now的page数据），一定是当时evict时的数据状态，然后，我们接着对这个已经存在DB cache内存的page进行操作时（对应了后续产生的redo log record for this page），一定是一致的。这个包括所有针对这个页面的任何写操作，如update、merge、split、delete等。
+其核心原理在于：当用这个page LSN <= VCL（or VDL）的约束去evict某个页面page时，我们保证master从存储层读到的page（而且是存储层计算获得的最新up-to-now的page数据），一定是当时evict时的数据状态，然后，我们接着对这个已经存在DB cache内存的page进行操作时（对应了后续产生的redo log record for this page），一定是一致的。这个包括所有针对这个页面的任何写操作，如update、merge、split、delete等。
 
 你可能担心，如果evict然后read的page，不保证B树一致性（traverse会出错），怎么办？对于master，应该没有这个问题，因为master应该设置了相关的锁，保证这些page不会被访问到，从而维护B树的一致性（读出page且B树不一致的事务应该继续工作，将后面的page补齐，从而让B树保证一致性）。注意：这个仅对Aurora master有效，对于Aurora slave，其实现机理不同，不能通过VCL保证B树一致性（请继续阅读，直到《slave的读read》）。
 
@@ -321,7 +321,7 @@ if its “page LSN” (identifying the log record associated with the
 latest change to the page) is greater than or equal to the VDL.
 ```
 
-首先，greater than，我认为需要改成less than。如果是谈master，VDL需要改为VCL。但如果是slave，则必须是VDL（为什么，往下看）
+首先，greater than，我认为需要改成less than。如果是谈master，VDL可以改为VCL。但如果是slave，则必须是VDL（为什么，往下看，直到《slave的读read》）
 
 ## 五、slave的同步（write for slave）
 
@@ -334,7 +334,7 @@ latest change to the page) is greater than or equal to the VDL.
 1. master可能crash，我们需要promote slave to master，这需要undo log，用于crash recover
 2. slave还需要服务其他（连接到本slave node的App）提交的read only transaction，而这些read only transaction需要MVCC，所以，我们还需要undo log。
 
-那slave的write同步，就既需要master产生的redo log，也要master产生的对应的undo log，同时，slave必须undo log本地存盘（因为Storage node没有undo log）。
+那slave的write同步，就既需要master产生的redo log，也要redo log对应的undo log（也是master产生），同时，slave必须undo log本地存盘（因为Storage node没有undo log）。
 
 同时上面的分析我们还知道，为了支持MVCC和各种Isolation，我们还需要知道transactionn list，即所有写的事务的Transaction ID列表。这个可以通过分析redo log得到，因为redo log记录了某个Transaction ID的诞生和消亡，但是为了简化slave的计算，Aurora master是将这些信息作为附加信息和redo log一起发给slave的。
 
@@ -352,11 +352,11 @@ latest change to the page) is greater than or equal to the VDL.
 
 Aurora解决这个问题很简单，master将redo log按mini transaction分割，按chunk方式发过给slave，因为redo log里，任何一个在master上的mini transaction形成的redo log records，中间都绝对不会出现其他mini transaction生成的redo log record，即master在redo log的生成中，已经保证了，它是按mini transaction连续的。
 
-我们又知道，在Storage node里apply redo时，需要得到初值（本地硬盘上有），然后才能获得终值（按某个page为单位目标）。
+我们又知道，在Storage node里apply redo时，需要得到初值（Storage node的本地硬盘上已有），然后才能获得终值（按page为单位目标）。
 
 那么slave上，如果其DB cache里没有对应的page，是否需要到存储层去读出其初值，然后进行apply呢？
 
-答案是：不用。因为我们的目的是保证B树的一致性，如果此page不在slave的DB cache里，我们无需apply，也一样保证B树的一致性。
+答案是：不用。因为我们的目的是保证B树的一致性，如果此page不在slave的DB cache里，我们无需apply，也一样保证B树的一致性（slave假设未来不在其DB cache里的page，可以从存储层读到绝对一致的page）。
 
 这带来什么好处？这样，所有在slave的apply工作，都是针对内存而去，没有IO（除了undo log，但undo log的落盘很快），这将使slave的atomic apply for all redo log records of one mini transactionn这个动作的cost非常低，从而使stop the world的代价绝对小，从而让read only transactions for slave可以更早地进入下一步并发工作，从而带来整个slave的吞吐Throughput得到提高。
 
@@ -366,7 +366,7 @@ Aurora解决这个问题很简单，master将redo log按mini transaction分割�
 
 ## 六、slave的读read
 
-当read only transaction需要某个不在DB cache的page时，不在DB cache的原因可能是：1. 它可能本来不在，2. 被slave ecict了（在slave上，evict时，不考虑dirty page的约束），slave必须到存储层去获得这个page。
+当read only transaction需要某个不在slave DB cache的page时，slave必须到存储层去获得这个page。注：不在DB cache的原因可能是：1. 它可能本来就不在，2. 开始在，接着被slave evict了（在slave上，evict时，不考虑像master那样的约束）。
 
 那slave能否像master那样，根据VCL的限定去某个Storage node上拿最新的page？
 
@@ -376,7 +376,9 @@ Aurora解决这个问题很简单，master将redo log按mini transaction分割�
 
 其次，我们在《slave的同步（write for slave）》里分析了，slave上的read only transction，还必须受mini transaction这个约束。即如果我们从Storage node拿到的page，不能保证B树的一致性，那么会让read only transaction遍历B树时非法。所以，我们必须拿截止到某个VDL的页面。
 
-最后，slave上的VDL和master的VDL是不一样的。
+最后，slave从存储层拿到的页面，应该和那个时刻（即slave write完成的最后一个LSN）master里面的DB cache完全一模一样的数据。
+
+还必须注意：slave上的VDL和master的VDL，在绝对某个时间上（理论上master和slave统一看到的物理上的唯一时钟），是不一样的。
 
 slave是异步地接收master的redo log，所以，slave认为的VDL和master的VDL，在某个时刻，并不一样，但有一点可以做到，即slave认定的VDL，一定小于或等于master的VDL，master通过chunk方式发来的redo log records的最后一条，就是slave认定的那个VDL，而且此LSN，master可以保证小于或等于master自己认知的VDL（超过了master不发即可）。
 
