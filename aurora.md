@@ -378,7 +378,7 @@ Aurora解决这个问题很简单，master将redo log按mini transaction分割�
 
 最后，slave从存储层拿到的页面，应该和那个时刻（即slave write完成的最后一个LSN）master里面的DB cache完全一模一样的数据。
 
-还必须注意：slave上的VDL和master的VDL，在绝对某个时间上（理论上master和slave统一看到的物理上的唯一时钟），是不一样的。
+注意这个事实和麻烦：**slave上的VDL和master的VDL，在绝对某个时间上（理论上master和slave统一看到的物理上的唯一时钟），是不一样的**。
 
 slave是异步地接收master的redo log，所以，slave认为的VDL和master的VDL，在某个时刻，并不一样，但有一点可以做到，即slave认定的VDL，一定小于或等于master的VDL，master通过chunk方式发来的redo log records的最后一条，就是slave认定的那个VDL，而且此LSN，master可以保证小于或等于master自己认知的VDL（超过了master不发即可）。
 
