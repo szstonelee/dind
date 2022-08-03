@@ -58,11 +58,11 @@ Aurora只有一个Computing node作为master对外服务（注意：随后的补
 
 * master和slave因为没有page的落盘，所以，也就无需double write
 
-* 存储层有相应的page落盘，但存储层的page落盘，是根据redo计算获得的，Storage node可以不使用double write，因为Storage node允许个别故障。
+* Storage node有相应的page落盘，但Storage node的page落盘，是根据redo计算获得的，Storage node可以不使用double write，因为Storage node允许个别故障。
 
 * master的redo log，无需本地存盘，但undo log需要本地存盘。
 
-* master和slave的通信（只同步write），即有redo log，也有undo log，但没有page直接传送。master和slave之间，不需要binlog的传输进行master和slave之间的write同步，即master和slave之间是物理同步（redo，redo是针对B树具体page的物理操作记录），而不是逻辑同步（MySQL binlog里的信息是逻辑操作信息，即SQL语句或针对某个tuple的write）
+* master和slave的通信（只同步write），即有redo log，也有undo log，但没有page直接传送。master和slave之间Storage node，不需要binlog的传输，即master和slave之间是物理同步（redo，redo是针对B树具体page的物理操作记录），而不是逻辑同步（MySQL binlog里的信息是逻辑操作信息，即SQL语句或针对某个tuple的write）
 
 * slave需要对undo log进行本地存盘，但对于redo log，无需本地存盘。
 
