@@ -462,7 +462,7 @@ Page(202) image: base LSN = 1
 
 我自己的实践，Half Master/Master的一个案例，[BunnyRedis](https://www.zhihu.com/column/c_1431329604070342656)，其最大上限也是网络，而且只针对写。所以，在我的文章里[《分布式思考：我们需要分片Shard（含分库分表）吗？》](https://zhuanlan.zhihu.com/p/403604353)，如果假设一个qps平均是1K Byte的话，那么，针对BunnyRedis，这个写的上限是25M qps(两千多万)，如果读和写的比例是十比一的话，整个BunnnyRedis系统的上限是：近三亿qps。
 
-## 九、Aurora性能的提升、如何超越Aurora的性能
+## 九、如何超越Aurora的性能
 
 在Aurora的测试中，对比传统MySQL，其读写有十倍以上的提升。
 
