@@ -115,7 +115,7 @@ Log我们还必须详细解释，请接着往下看《Log的妙趣》。
 
 LSN是一个重要的定义，我们再做强调
 
->LSN: log sequence number，是指每个redo log record的唯一标识，它是递增的，标识了数据库在时间上的连续的修改动作，即按照这个LSN的顺序，不遗漏地进行apply，我们总能从数据库的某个初值，达到未来截止某个时刻的绝对一致的终值。
+>LSN: log sequence number，是指每个redo log record的唯一标识，它是递增的，标识了数据库在时间上的连续的修改动作，即按照这个LSN的顺序，不遗漏地进行apply，我们总能从数据库的某个初值，达到未来截止某个时刻（或任一时刻）的绝对一致的终值。
 
 对于数据库有一个麻烦的地方叫：后悔。后悔的意思：Transactionn允许abort，数据库的值必须roll back到前面一个值，比如上例中，我们有两个Transaction，一个做动作a，一个做动作b，但允许Transaction a后悔，不commit，而是roll back。
 
@@ -131,11 +131,11 @@ undo log record:                      delete: last three words            delete
 DB in disk:        I am Tony          I am Tony                           I am Tony
 ```
 
-如果Transaction a，在即time 2之后，time 3以前进行roll back，我们只要在内存I am Tony coding for world这个值，对应的undo log record: delete: last three words，去执行这个undo动作，我们就可以获得I am Tony这个合适的值。
+如果Transaction a，在即time 2之后，time 3以前进行roll back，我们只要在内存I am Tony coding for world这个值，对应的undo log record，delete: last three words，去执行这个undo动作，我们就可以获得I am Tony这个合适的值。
 
 如果在time 3以后，且Transaction b还没有roll back（Trannsaction b可以是committed，也可以是uncommitted)，如果Transaction a此时做roll back，我们必须连续读两个undo log record，然后计算得到，这是从尾部倒退五个单词word，然后开始删除三个单词，即从I am Tony coding for world in China，变回I am Tony in China。
 
-所以，当前内存的DB（或者更准确而言，是DB里的记录，tuple），必须有一个指针，指向对应的undo log record。然后，历史的undo record log，必须形成一个链表，构成历史遍历，这时，任何一个Transaction需要roll back时，都可以从指针开始，遍历这个undo log record链表，然后回复到合适的值。
+所以，当前内存的DB（或者更准确而言，是DB里的记录，tuple），必须有一个指针，指向对应的undo log record。然后，历史的undo record log，必须形成一个链表，构成历史遍历，这时，任何一个Transaction需要roll back时，都可以从指针开始，遍历这个undo log record链表，然后回复（roll back）到合适的值。
 
 undo log record形成链表，需要在其内容里，记录了链表里相关（即链表里的前一个）的undo log record的指针。
 
@@ -161,7 +161,7 @@ undo log还带来一个MVCC的好处。
 
 注：实际Transaction运行中，不需要实时针对这个transaction list的全局数据做查询，而是一个叫read view的实现，即对当时的transaction list做一个snapshot拍照，然后用vector存储在Transaction本地局部数据。如果Transaction的Isolation被设置为REPEATABLE，那么只做一次read view拍照；如果是Isolation是READ COMMITTED，则事务中有读的每个SQL语句，都会形成一个read view。 
 
-注：上面的redo、undo范例中，是抽象模拟。实际对于任何一个field的更改，redo和undo都是记录整个field value。但是，由于一个tuple是由多个field组成，而redo和undo只记录被修改的field的值，所以，上面的抽象是可类比的，即某个tuple的整值，必须通过tuple初值，经过所有的redo log record计算获得最新值。而对应历史的旧值，或者roll back回到某个旧值，必须对undo log record进行遍历，
+注：上面的redo、undo范例中，是抽象模拟。实际对于任何一个field的更改，redo和undo都是记录整个field value。但是，由于一个tuple是由多个field组成，而redo和undo只记录被修改的field的值，所以，上面的抽象是可类比的，即某个tuple的终值，必须通过tuple初值，经过所有的redo log record计算获得。而对应各个Transaction在各种Isolation下读到的合适值，或者某个Transaction需要roll back回到某个旧值，必须对undo log record进行遍历，
 
 ## 三、Aurora的写Write : quorum write
 
@@ -169,15 +169,15 @@ undo log还带来一个MVCC的好处。
 
 quorum是一个洋文，它的意思是选举里，必须达到法定人数，才算有效。对于Aurora，它有6个copy，因此系统设定quorum = 4。即4个Storage nodes写成功，才算是quorum write写成功的前提条件（**注意：还不算写成功**）。
 
-前面的描述知道，计算层和存储层时通过网络通信的，而且都是独立的机器node，所以，站在发起write的master眼里，是收到Storage node的response，这个Storage node才算成功，而且收集了至少4个成功返回response的Storage node，master才认为这是写成功的必要条件。
+前面的描述知道，计算层和存储层时通过网络通信的，而且都是独立的机器node，所以，站在发起write的master眼里，是收到Storage node的response，这个Storage node才算成功，而且收集了至少4个成功返回response的Storage node，master才认为这是quorum write成功的必要条件。
 
 我们又知道，Aurora里，master只发送redo log给Storage node，这个redo log在Computing node内存里，是按LSN顺序不断尾部追加redo log record的，那么Aurora如何处理后面这两个麻烦：其一. 异步的通信；其二，分布的6个Storage nodes。
 
-Aurora的解决办法是：
+Aurora master的解决办法是：
 
 1. master并不强求上一个redo log record写成功，才发下一个redo log record，即可以乱序。
 
-2. 如果某个redo log record暂时没有收集到4个response，就重试重发，因为假设整个存储层是永久有效的（见上文描述），所以，这个write也是最终能保证收集至少4个response。
+2. 如果某个redo log record暂时没有收集到4个response，就重试重发，因为假设整个存储层是永久有效的（见上文描述），所以，针对这个redo log record的write也是最终能保证收集至少4个response。
 
 3. 当某个redo log record收集了4个response，master可以不再给剩下的2个Storage node发write请求，因为系统允许至多两个Storage node失败（例如：停机维护）。
 
@@ -195,7 +195,7 @@ Aurora的解决办法是：
 
 所以，Aurora的quorum write的乱序发送，对于吞吐Throughput有很大好处，因为少了前后的约束。
 
-特别是，非commit的redo log record里的动作，在master上可以直接产生效果，不受quorum write是否成功的约束，这样，可以让master的事务执行基本不受网络和存储的约束，能够很好地并发和快速地执行，这也就意味，master上的DB cache页面内容，可以远远领先于存储层对应的页面内容。注：为了防止超前太多，Aurora加了一个LAL约束，LAL = 10 million，即不能跑太快，超过千万。
+特别是，非commit的redo log record里的动作，在master上可以直接产生效果，不受quorum write是否成功的约束，这样，可以让master的事务执行基本不受网络和存储的约束，能够很好地并发和快速地执行，这也就意味，master上的DB cache page的内容，可以远远领先于存储层对应的page内容。注：为了防止超前太多，Aurora加了一个LAL约束，LAL = 10 million，即不能跑太快，超过千万。
 
 ### 3-3、quorum write的麻烦和如何解决
 
@@ -249,7 +249,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 我们来分析一下transaction commit的特别要求：
 
-传统的MySQL，在收到App的commit请求时，必须先生成对应的redo log record（先在内存里，即redo buffer），然后必须保证写盘成功（flush to disk，同时也保证之前的redo log reccord和相关的undo record log也写盘成功），然后才能接着处理后续的相关内容内容，包括解锁、改变Transaction状态（从transaction list里删除此Transaction ID）和返回commit成功信息给客户App。
+传统的MySQL，在收到App的commit请求时，必须先生成对应的redo log record（先在内存里，即redo buffer），然后必须保证写盘成功（flush to disk，同时也保证之前的redo log reccord和相关的undo record log也写盘成功），然后才能接着处理后续的相关内容，包括解锁、改变Transaction状态（从transaction list里删除此Transaction ID）和返回commit成功信息给客户App。
 
 如果到了Aurora这里，生成的commit redo log record收到了Storage node的四个response，虽然此record被标识某种成功了（success of collecting quorum response），但仍不算write success，必须保证前面的所有的乱序和异步发送的redo log record也标识成功（success of collecting quorum response），此commit redo record才算写成功（success of quorum write），然后才能接着处理解锁、改transaction list以及回应App成功这些动作。
 
@@ -265,7 +265,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 如果再转义一下，VCL就是站在Computing node视角，针对存储层，落盘成功的最大的LSN，且保证之前的LSN全部落盘成功。
 
-注意：Aurora master实现VCL计算时，不是通过保存所有的redo record log记录的状态进行的，它只要收集所有Storage nodes的redo log record的连续状态，然后简单计算即可获得这个VCL。这样一是简化了master上的状态保存状态，二是可以保证六台Storage node（如果都活的话）都满足VCL，或者至少哪4台Storage node满足VCL。尽管这个通过Storage nodes汇报而计算获得的VCL可能比如果master全部本地缓存全部状态而得到的值要低，但这个VCL已经足够了。
+注意：Aurora master实现VCL计算时，不是通过保存所有的redo record log记录的状态进行的，它只要收集所有Storage nodes的redo log record的连续状态，然后简单计算即可获得这个VCL。这样一是简化了master上的状态保存复杂度，二是可以保证六台Storage node（如果都活的话）都满足VCL，或者至少哪4台Storage node满足VCL。尽管这个通过Storage nodes汇报而计算获得的VCL可能比如果master全部本地缓存全部状态而得到的值要低，但这个VCL已经足够了。
 
 我们再加入一个相关的**VDL**，其定义如下：
 >VDL：是截止到VCL的最近的一个mini transaction logic mini commit log reecord点（也是一个LSN，但必须是最后一个mini transaction里面的最后一个LSN）。
@@ -285,7 +285,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 ## 四、master的读read
 
-首先，正常情况下（非crash & recover阶段），那么，不管masster，还是slave，如果发现需要读的page不在DB cache里（cache miss），那么它只需要到一台Storage node去读，而且**不是quorum read**。注：crash & recover阶段的quorum read，对于读read，quorum是3，而不是4，因为这可以保证读到最新的值，本文不详细讨论crash和recover以及相关的quorum read。
+首先，正常情况下（非crash & recover阶段），那么，不管masster，还是slave，如果发现需要读的page不在DB cache里（cache miss），那么它只需要到一台Storage node去读，而且**不是quorum read**。注：crash & recover阶段的quorum read，quorum是3，而不是4，因为这可以保证读到最新的值，本文不详细讨论crash和recover以及相关的quorum read。
 
 为什么？
 
@@ -313,7 +313,7 @@ master想要获得page number = 101的一个数据，它开始是在内存里（
 
 Aurora的论文，是用VDL做保证判断。但我个人的理解，对于master，VCL就足够，但由于VDL小于等于VCL，所以，用VDL去做evict约束条件，没有任何问题。
 
-其核心原理在于：在master上，当用这个page LSN <= VCL（or VDL）的约束去evict某个页面page时，我们保证master从存储层读到的page（而且是存储层计算获得的最新up-to-now的page数据），一定是当时evict时的数据状态，然后，我们接着对这个已经存在DB cache内存的page进行操作时（对应了后续产生的redo log record for this page），一定是一致的。这个包括所有针对这个页面的任何写操作，如update、merge、split、delete等。
+其核心原理在于：在master上，当用这个page LSN <= VCL（or VDL）的约束去evict某个dirty page时，我们保证master从存储层读到的page（而且是存储层计算获得的最新up-to-now的page数据），一定是当时evict时的数据状态，然后，我们接着对这个已经存在DB cache内存的page进行操作时（对应了后续产生的redo log record for this page），一定是一致的。这个包括所有针对这个页面的任何写操作，如update、merge、split、delete等。
 
 你可能担心，如果evict然后read的page，此时不保证B tree一致性（traverse会出错），怎么办？对于master，应该没有这个问题，因为master应该设置了相关的锁，保证这些page不会被其他事务访问到，从而维护B tree的一致性（读出page且当时B tree不一致的事务应该是写且上锁的事务，即当时导致B tree不一致的事务，它应该继续工作，将后面的page补齐，从而在本mini transaction里最终让B tree保证一致性）。注意：这个仅对Aurora master有效，对于Aurora slave，其实现机理不同，不能通过VCL保证B tree一致性（请继续阅读，直到《slave的读read》）。
 
@@ -331,24 +331,24 @@ latest change to the page) is greater than or equal to the VDL.
 
 前面说了，Aurora的计算层可以有多个slave，它需要同步master的write。
 
-我们在《Log的妙趣》里分析，只要有redo log，然后一步一步地apply顺序的redo log record，就可以像存储层那样，形成一个一致的data set。这视乎不需要undo log什么事？
+我们在《Log的妙趣》里分析，只要有redo log，然后一步一步地apply顺序的redo log record，就可以像存储层那样，形成一个一致的page。这视乎不需要undo log什么事？
 
 这是不对的，slave需要undo log，因为两个原因：
 
 1. master可能crash，我们需要promote slave to master，这需要undo log，用于crash recover
-2. slave还需要服务其他（连接到本slave node的App）提交的read only transaction，而这些read only transaction需要MVCC，所以，这也需要undo log。
+2. slave还需要服务连接到本slave node的App提交的read only transaction，而这些read only transaction需要MVCC，所以，这也需要undo log。
 
-那slave的write同步，就既需要master产生的redo log，也要redo log对应的undo log（也是master产生），同时，slave必须undo log本地存盘（因为Storage node没有undo log）。
+那slave的write同步，就既需要master产生的redo log，也要redo log对应的undo log（也是master产生），同时，slave必须undo log本地存盘（因为Storage node没有undo log，而master可能彻底死翘翘）。
 
-同时上面的分析我们还知道，为了支持MVCC和各种Isolation，我们还需要知道transactionn list，即所有写的事务的Transaction ID列表。这个可以通过分析redo log得到，因为redo log记录了每个Transaction ID的诞生和消亡，但是为了简化slave的计算，Aurora master是将这些信息作为附加信息和redo log一起发给slave的。
+同时上面的分析我们还知道，为了支持MVCC和各种Isolation，我们还需要知道transactionn list，即所有写的事务的Transaction ID列表。这个slave可以通过分析redo log得到，因为redo log记录了每个Transaction ID的诞生和消亡，但是为了简化slave的计算，Aurora master是将这些信息作为附加信息和redo log一起发给slave的。
 
-然后，我们就需要考虑如何apply redo，我们能否像Storage node那样，任意地自由地在slave上进行apply？
+然后，我们就需要考虑如何在slave上apply redo，我们能否像Storage node那样，任意地自由地进行apply？
 
 我们不能。为什么？
 
 因为数据库的写操作，有mini transaction的约束。
 
-什么是mini transaction的约束，简而言之，就是为了保证整个B tree的一致性，一些record log record，必须连续且原子地执行，否则，会导致B tree的不一致而引起的非法错误。试想一下，一个tuple的插入、删除和修改，都可能导致B tree的页的分裂split和合并merge，因为牵扯到多个页page，它们必须一起完成。否则，做到一半事务暂停（比如：线程休眠），那么其他事务如果遍历此B tree，就会导致非法。
+什么是mini transaction的约束，简而言之，就是为了保证整个B tree的一致性，一些record log record，必须连续且原子地执行，否则，会导致B tree的不一致而引起的非法错误。试想一下，一个tuple的插入、删除和修改，都可能导致B tree的页的分裂split和合并merge，因为牵扯到多个页page，它们必须一起完成。否则，做到一半暂停（比如：线程休眠），那么其他事务如果遍历此B tree，就是一个broken B tree，就会导致非法。
 
 在InnoDB里定义了mini transaction，就是为了这个目的。这个mini transaction的执行，必须是原子的，即中间不可打断（除非crash）。
 
@@ -384,7 +384,7 @@ slave write，相当于照搬了master某个内存快照，但只作用于slave�
 
 首先，和上面的《master的读read》分析一样，slave不可以拿VCL之后的page，即不可以拿Storage node还无法形成的page。
 
-其次，我们在《slave的同步（write for slave）》里分析了，slave上的read only transction，还必须受mini transaction这个约束。即如果我们从Storage node拿到的up-to-now的page（因为其截止点是Storage node看到的VCL），不能保证B tree的一致性，那么会让read only transaction遍历B tree时非法。所以，我们必须拿截止到某个VDL的页面。
+其次，我们在《slave的同步（write for slave）》里分析了，slave上的read only transction，还必须受mini transaction这个约束。即如果我们从Storage node拿到的up-to-now的page（因为其截止点是Storage node看到的VCL），不能保证B tree的一致性，那么会让read only transaction for slave遍历B tree时非法。所以，我们必须拿截止到某个VDL的页面。
 
 最后，slave从存储层拿到的页面，应该和那个时刻（即slave write完成的最后一个LSN）master里面的DB cache完全一模一样的数据。
 
@@ -398,7 +398,7 @@ slave是异步地接收master的redo log，所以，slave认为的VDL和master�
 
 如果此page已经在slave的DB cache里，我们apply了这些redo log records，我们肯定可以保证此时slave page是和master（对应slave VDL时刻）是完全一样的。这个在上面的write for slave分析中已经阐述过了。
 
-但上面分析说了，slave apply是可以略过（omit or skip）那些不在DB cache for slave的页面page，所以，当slave到Storage node去读某个page时，它必须读到截止到slave VDL时刻的页面值，即：如果从master角度看，这些slave从Storage读出的page，必须是master在slave VDL时刻完全一模一样的内存page（注意：master DB cache里，此时，即物理上slave write时刻，可能有更新的页面内容，而且，这个对应更新页面内容的redo log，可能也已经发给了Storage node）。
+但上面分析说了，slave apply是可以略过（omit or skip）那些不在DB cache for slave的页面page，所以，当slave到Storage node去读某个page时，它必须读到截止到slave VDL时刻的页面值，即：如果从master角度看，这些slave从Storage node读出的page，必须是master在slave VDL时刻完全一模一样的内存page（注意：master DB cache里，此时，即物理上slave write时刻，可能有更新的页面内容，而且，这个对应更新页面内容的redo log，可能也已经发给了Storage node）。
 
 这个如何解决？
 
@@ -408,7 +408,7 @@ slave是异步地接收master的redo log，所以，slave认为的VDL和master�
 
 那么，在从Storage nodee加载这个页面到slave DB cache这个异步过程中，master又发来了新的针对这个page的redo log records，怎么办？
 
-此时，slave必须将这些redo log records保留下来（不能忽略omit or skip，即不能认为这个page不在slave的DB cache里），形成针对这个page的临时链表，当存储层返回page数据后，slave立刻apply这个临时链表：redo log records for this page，此时，就生成了，针对新的slave VDL时刻的page，并保证和master那个时刻的一致性。
+此时，slave apply时（slave write）必须将这些redo log records保留下来（不能忽略omit or skip，即不能认为这个page不在slave的DB cache里），形成针对这个page的临时链表，当存储层返回page数据后，slave立刻apply这个临时链表：tempary redo log records for this page，此时，就生成了，针对新的slave VDL时刻的page，并保证和master那个时刻的一致性。
 
 上面的分析还带来一个问题，Storage node如果一直保留redo log records，不会撑破Storage nodes的内存？
 
@@ -456,7 +456,7 @@ Page(202) image: base LSN = 1
 
 请参考我写的一个文章：[《内存、网络、磁盘性能比较》](https://zhuanlan.zhihu.com/p/420534288)，一般而言，瓶颈在磁盘。
 
-但由于Aurora采用了计算和存储分离的架构，而且存储是分布式的（而且有segment shard），所以，用多个Storage node来统一提供存储服务，所以，这里，磁盘已经不受限制了。
+但由于Aurora采用了计算和存储分离的架构，而且存储是分布式的（而且有segment shard），所以，这里，磁盘已经不会成为瓶颈了。
 
 那么自然，整个Aurora的系统的上限，来自网络，即其最大的Throughput，最后受限于网络带宽的限制。
 
