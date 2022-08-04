@@ -317,7 +317,7 @@ Aurora的论文，是用VDL做保证判断。但我个人的理解，对于maste
 
 你可能担心，如果evict然后read的page，此时不保证B tree一致性（traverse会出错），怎么办？对于master，应该没有这个问题，因为master应该设置了相关的锁，保证这些page不会被其他事务访问到，从而维护B tree的一致性（读出page且当时B tree不一致的事务应该是写且上锁的事务，即当时导致B tree不一致的事务，它应该继续工作，将后面的page补齐，从而在本mini transaction里最终让B tree保证一致性）。注意：这个仅对Aurora master有效，对于Aurora slave，其实现机理不同，不能通过VCL保证B tree一致性（请继续阅读，直到《slave的读read》）。
 
-在《Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases》论文中，我人为下面的话是有错的：
+在《Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases》论文中，我认为下面的话是有错的：
 
 ```
 The guarantee is implemented by evicting a page from the cache only
