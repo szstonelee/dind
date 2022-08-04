@@ -28,13 +28,13 @@ Aurora基于MySQL(InnoDB)的改造，是一个分布式OLTP的关系型数据库
 
 所谓集中共享式，是指从任何一个Computing node眼里看存储层，都是统一无区别的。数据只有整体一致的六个copy，虚拟成一个统一的整体。
 
-但Aurora是整个数据data set有6个copy，而且每个copy，是做了shard，即segement方式分割数据。每个sengment不允许超过10G，data set超过此大小限制即形成新的segment，segment之间是数据连续分布的。比如：整个dataset是20G，那么是2个segment，又必须有6个copy，则总共有12个segment。这12个segment，至少可以用6个Storage node去承担，也可以最多12个Storage node去成承担（也可以6-12中间任何一个数字）。并且，segment可以后台移动，即从一个Storage node，作为一个整体单位（segment为单位），移动到另外一个Storage node上。
+但Aurora是整个数据data set有6个copy，而且每个copy，是做了shard，即segment方式分割数据。每个segment不允许超过10G，data set超过此大小限制即形成新的segment，segment之间是数据连续分布的。比如：整个dataset是20G，那么是2个segment，又必须有6个copy，则总共有12个segment。这12个segment，至少可以用6个Storage node去承担，也可以最多12个Storage node去成承担（也可以6-12中间任何一个数字）。并且，segment可以后台移动，即从一个Storage node，作为一个整体单位（segment为单位），移动到另外一个Storage node上。
 
 但这和类似Google Spanner、AWS DynomaDB的系统，shard上有本质的差别。
 
 Spanner是先考虑shard（比如：最少2个key就可以分布了），将数据分散到多个node上，然后执行数据处理时，预先用Distributed Transaction做了准备。
 
-而Aurora是先不考虑shard，即10G下，不需要多个segment。同时，做数据处理时，即使数据分布在多个segment上，也不需要Distribute Transaction考虑。即多个segment虚拟连接成好像一个独立的数据库存储空间（可以抽象成一个文件或一个tablespace，所有表table对应的clustered inxde和second index都在里面，即所有的B tree），所以，我们仍然可以用B tree对应的页page，以及任何一个page都只有唯一的Number（即Page No.）标识此page，只是Page No.需要根据node、segment进行一个相应的换算即可。
+而Aurora是先不考虑shard，即10G下，不需要多个segment。同时，做数据处理时，即使数据分布在多个segment上，也不需要Distribute Transaction考虑。即多个segment虚拟连接成好像一个独立的数据库存储空间（可以抽象成一个文件或一个table space，所有表table对应的clustered index和second index都在里面，即所有的B tree），所以，我们仍然可以用B tree对应的页page，以及任何一个page都只有唯一的Number（即Page No.）标识此page，只是Page No.需要根据node、segment进行一个相应的换算即可。
 
 后面分析时，为了简化理解，我们去除Aurora所使用的shard，即忽略segment的作用。我们简化成只有六个Storage nodes，然后有6个copy，每个copy在一个Storage node上。这对于整个Aurora系统分析，没有任何影响，但你必须理解，Aurora内部，是用segment做了shard的，而且存储集群不只限于6个Storage node。
 
@@ -133,7 +133,7 @@ DB in disk:        I am Tony          I am Tony                           I am T
 
 如果Transaction a，在即time 2之后，time 3以前进行roll back，我们只要在内存I am Tony coding for world这个值，对应的undo log record，delete: last three words，去执行这个undo动作，我们就可以获得I am Tony这个合适的值。
 
-如果在time 3以后，且Transaction b还没有roll back（Trannsaction b可以是committed，也可以是uncommitted)，如果Transaction a此时做roll back，我们必须连续读两个undo log record，然后计算得到，这是从尾部倒退五个单词word，然后开始删除三个单词，即从I am Tony coding for world in China，变回I am Tony in China。
+如果在time 3以后，且Transaction b还没有roll back（Transaction b可以是committed，也可以是uncommitted)，如果Transaction a此时做roll back，我们必须连续读两个undo log record，然后计算得到，这是从尾部倒退五个单词word，然后开始删除三个单词，即从I am Tony coding for world in China，变回I am Tony in China。
 
 所以，当前内存的DB（或者更准确而言，是DB里的记录，tuple），必须有一个指针，指向对应的undo log record。然后，历史的undo record log，必须形成一个链表，构成历史遍历，这时，任何一个Transaction需要roll back时，都可以从指针开始，遍历这个undo log record链表，然后回复（roll back）到合适的值。
 
@@ -147,17 +147,17 @@ undo log还带来一个MVCC的好处。
 
 我们假设磁盘的初值I am Tony是一个committed value。
 
-试想一下还有另外一个read only transaction，它的Isolation被设置为READ COMMIT级别，即它不允许dirty read（不允许返回uncommited value）。
+试想一下还有另外一个read only transaction，它的Isolation被设置为READ COMMIT级别，即它不允许dirty read（不允许返回uncommitted value）。
 
 如果read only transaction读到的时刻是time2，内存的值为I am Tony coding for world，如果Transaction a还没有commit，那么，它必须去读对应的undo record log（通过tuple的指针），然后简单计算获得前值是I am Tony，然后才能保证此值是一个committed value（即最开始磁盘里的初值）。
 
-如果read only transactionn读到的时刻是time 3，内存的值已经变成I am Tony coding for world in China，同时Transaction a和b都没有commit，那么它必须通过undo链表，去计算得到I am Tony这个committed value。但如果Transaction a已经commit，而Transaction b还没有commit，那么它必须顺着这个undo 链表，得到此时的committed value是I am Tony coding for world。
+如果read only transaction读到的时刻是time 3，内存的值已经变成I am Tony coding for world in China，同时Transaction a和b都没有commit，那么它必须通过undo链表，去计算得到I am Tony这个committed value。但如果Transaction a已经commit，而Transaction b还没有commit，那么它必须顺着这个undo 链表，得到此时的committed value是I am Tony coding for world。
 
 所以，下面的结论对我们后面的分析很重要：
 
 1. undo log支持MVCC，因此可以支持各种Isolation级别的读写。
 
-2. 为了支持各种Isolation，除了需要undo log，还必须知道当时所有的有写Transaction的运行状态，即某个时刻的transaction list。InnoDB里，只有写的Transaction才有Transaction ID（在第一个有写的SQL语句里分配），才会在transaction list里。read only tansaction是无Transaction ID的，不会出现在transaction list里。
+2. 为了支持各种Isolation，除了需要undo log，还必须知道当时所有的有写Transaction的运行状态，即某个时刻的transaction list。InnoDB里，只有写的Transaction才有Transaction ID（在第一个有写的SQL语句里分配），才会在transaction list里。read only transaction是无Transaction ID的，不会出现在transaction list里。
 
 注：实际Transaction运行中，不需要实时针对这个transaction list的全局数据做查询，而是一个叫read view的实现，即对当时的transaction list做一个snapshot拍照，然后用vector存储在Transaction本地局部数据。如果Transaction的Isolation被设置为REPEATABLE，那么只做一次read view拍照；如果是Isolation是READ COMMITTED，则事务中有读的每个SQL语句，都会形成一个read view。 
 
@@ -183,13 +183,13 @@ Aurora master的解决办法是：
 
 4. 当之前的所有的redo log record都收集了至少4个response，当前这个redo log record也收集了至少4个response（即必要和前提条件），master才认为当前这个redo log record写成功（success of quorum write），即还必须有之前的redo log record连续写成功的约束。
 
-5. redo log record对应的动作在master上是否执行，和这个record是否写成功，没有关系，除非这个动作是transaction commmit。即非commit动作不受quorum write的约束和影响（commit的影响请见下面的《对于computing node (master) 的麻烦》）。
+5. redo log record对应的动作在master上是否执行，和这个record是否写成功，没有关系，除非这个动作是transaction commit。即非commit动作不受quorum write的约束和影响（commit的影响请见下面的《对于computing node (master) 的麻烦》）。
 
 补注：quorum字面上看（以及很多其他系统的实现），并不一定强制要求超过半数。Aurora对于write quorum要求是4，是有特别原因的，详细不作解释，看论文。
 
 ### 3-2、quorum write的好处
 
-因为乱序，所以，可以并发。即站在master眼里，上一个redo log record暂时还没有成功，并不影响处理下一个recoord发送给存储层。
+因为乱序，所以，可以并发。即站在master眼里，上一个redo log record暂时还没有成功，并不影响处理下一个record发送给存储层。
 
 网络通信里，最影响效率的是：必须等待对方回应，才能处理下一个请求（这样网络带宽的利用率是非常低的）。比如：我们知道App for RDB，一般一个数据库连接上的吞吐Throughput都不够多，不足以达到DB的最高效能，一个很大的原因就是，App必须处理了一个SQL事务，才能发送下一个SQL事务，因为上一个SQL事务的结果，可能是下一个SQL事务的某个条件，它们有相关性，所以，单连接不能并发。要实现RDB的全部效能，我们必须用多个数据库连接去完成，而且这些连接上的并发的SQL事务，没有相关性。
 
@@ -215,7 +215,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 先看如何识别漏洞:
 
-如果LSN是严格增1连续的（continously increesing，注意：只是连续increasing，不保证continous，只有单调加1的连续，才是continously increesing），那么问题很简单，比如，某个Storaage node收到的redo log record的LSN是如下的（假设LSN从1开始起始）：
+如果LSN是严格增1连续的（continously increesing，注意：只是连续increasing，不保证continuous，只有单调加1的连续，才是continuously increasing），那么问题很简单，比如，某个Storaage node收到的redo log record的LSN是如下的（假设LSN从1开始起始）：
 ```
 1、5、5、2、3、7、6、9
 ```
@@ -233,7 +233,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 答案很简单，当Transaction roll back时，也会形成对应的redo log record，Storage node只要执行这些record里的动作，就能回到roll back所希望达到的数据状态。
 
-所以，Storage node必须缓存redo log record，遍历发现漏洞，然后gosssip其他Storage node补齐这些漏洞。
+所以，Storage node必须缓存redo log record，遍历发现漏洞，然后gossip其他Storage node补齐这些漏洞。
 
 对于无漏洞的连续的redo log record，Storage node可以放心地一个接着一个地进行apply，获得对应的数据库状态。而且状态可以不只一个，如果条件允许，我们可以用新的状态覆盖旧的状态，或者，删除旧的状态，即回收purge（也可以叫GC，Garbage Collection）。为什么不用一个状态表达呢，为什么说条件允许，为什么要purge or GC？我们后面《slave的读read》会涉及这个知识点。
 
@@ -249,7 +249,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 我们来分析一下transaction commit（注意：不是下面mini transaction logic mini commit）的特别要求：
 
-传统的MySQL，在收到App的commit请求时，必须先生成对应的redo log record（先在内存里，即redo buffer），然后必须保证写盘成功（flush to disk，同时也保证之前的redo log reccord和相关的undo record log也写盘成功），然后才能接着处理后续的相关内容，包括解锁、改变Transaction状态（从transaction list里删除此Transaction ID）和返回commit成功信息给客户App。
+传统的MySQL，在收到App的commit请求时，必须先生成对应的redo log record（先在内存里，即redo buffer），然后必须保证写盘成功（flush to disk，同时也保证之前的redo log record和相关的undo record log也写盘成功），然后才能接着处理后续的相关内容，包括解锁、改变Transaction状态（从transaction list里删除此Transaction ID）和返回commit成功信息给客户App。
 
 如果到了Aurora这里，生成的commit redo log record收到了Storage node的四个response，虽然此record被标识某种成功了（success of collecting quorum response），但仍不算write success，必须保证前面的所有的乱序和异步发送的redo log record也标识成功（success of collecting quorum response），此commit redo record才算写成功（success of quorum write），然后才能接着处理解锁、改transaction list以及回应App成功这些动作。
 
@@ -268,14 +268,14 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 注意：Aurora master实现VCL计算时，不是通过保存所有的redo record log记录的状态进行的，它只要收集所有Storage nodes的redo log record的连续状态，然后简单计算即可获得这个VCL。这样一是简化了master上的状态保存复杂度，二是可以保证六台Storage node（如果都活的话）都满足VCL，或者至少哪4台Storage node满足VCL。尽管这个通过Storage nodes汇报而计算获得的VCL可能比如果master全部本地缓存全部状态而得到的值要低，但这个VCL已经足够了。
 
 我们再加入一个相关的**VDL**，其定义如下：
->VDL：是截止到VCL的最近的一个mini transaction logic mini commit log reecord点（也是一个LSN，但必须是最后一个mini transaction里面的最后一个LSN）。
+>VDL：是截止到VCL的最近的一个mini transaction logic mini commit log record点（也是一个LSN，但必须是最后一个mini transaction里面的最后一个LSN）。
 
-因为mini transaction保证了B tree的完整性（否则，如果有split和merge动作只完成一半，整个B tree的遍历traverse会出错，即mini transaction定义了一连串split和merge页面动作，以保护后续的其他事务对B tree可以安全遍历）。而一个mini transaction形成的多个（最少可以一个）redo log records是一个整体，这里面的最后一个LSN，相当于逻辑上的mini transaction logic mini commit log recoord。而VDL就是这样一个logic mini commit log reecord，它最接近VCL。
+因为mini transaction保证了B tree的完整性（否则，如果有split和merge动作只完成一半，整个B tree的遍历traverse会出错，即mini transaction定义了一连串split和merge页面动作，以保护后续的其他事务对B tree可以安全遍历）。而一个mini transaction形成的多个（最少可以一个）redo log records是一个整体，这里面的最后一个LSN，相当于逻辑上的mini transaction logic mini commit log recoord。而VDL就是这样一个logic mini commit log record，它最接近VCL。
 
 细节我不描述，详细可参考InnoDB的mini transaction的说明。你只需要知道：
 
 * 一个Transaction是由多个mini transaction组成的（包含其roll back过程）
-* mini transaction没有roll back概念，所以一个Transaction如果roll back，只不过是又产生了新的mini transactionn并执行
+* mini transaction没有roll back概念，所以一个Transaction如果roll back，只不过是又产生了新的mini transaction并执行
 * 一个mini transaction形成的redo log records，中间不会被另外一个mini transaction插入，即从redo log上看，mini transaction log records是连续的
 * 一个mini transaction，一旦开始，一定要完成。这包括：中间执行如果需要锁不会产生死锁（执行前开始前获得的锁可以不算，因为可以发现死锁然后roll back），中间如果splt/merge的页，不会让其他事务读取（比如：通过Lock和Latch实现），即它是个atomic动作，要么开始前do nothing，要么全部完成do all，而且中间执行不受外界影响同时也不对外界的其他事务产生非法错误的影响
 * 当一个mini transaction完成后，它保证其他事务可以安全地浏览整个B tree
@@ -340,7 +340,7 @@ latest change to the page) is greater than or equal to the VDL.
 
 那slave的write同步，就既需要master产生的redo log，也要redo log对应的undo log（也是master产生），同时，slave必须undo log本地存盘（因为Storage node没有undo log，而master可能彻底死翘翘）。
 
-同时上面的分析我们还知道，为了支持MVCC和各种Isolation，我们还需要知道transactionn list，即所有写的事务的Transaction ID列表。这个slave可以通过分析redo log得到，因为redo log记录了每个Transaction ID的诞生和消亡，但是为了简化slave的计算，Aurora master是将这些信息作为附加信息和redo log一起发给slave的。
+同时上面的分析我们还知道，为了支持MVCC和各种Isolation，我们还需要知道transaction list，即所有写的事务的Transaction ID列表。这个slave可以通过分析redo log得到，因为redo log记录了每个Transaction ID的诞生和消亡，但是为了简化slave的计算，Aurora master是将这些信息作为附加信息和redo log一起发给slave的。
 
 然后，我们就需要考虑如何在slave上apply redo，我们能否像Storage node那样，任意地自由地进行apply？
 
@@ -352,7 +352,7 @@ latest change to the page) is greater than or equal to the VDL.
 
 在InnoDB里定义了mini transaction，就是为了这个目的。这个mini transaction的执行，必须是原子的，即中间不可打断（除非crash）。
 
-因此，当从master传过来的redo log进行apply到slave本机时，我们必须原子性地执行一个个mini transaction。所以，在slave上这个mini transaction的apply，是一个类似stop the world的操作（类比Java的GC），这时，其他read only transaction for slave必须停下来，等这个redo log records of one (or last one) mini transaction完成。只有这个atomic apply完成后，read only transaction for slave才能唤醒，并且并发地继续执行，因为这时，B tree是一致的，不会引起这些read only transction for slave遍历B tree时，发现一个broken B tree，从而导致非法。
+因此，当从master传过来的redo log进行apply到slave本机时，我们必须原子性地执行一个个mini transaction。所以，在slave上这个mini transaction的apply，是一个类似stop the world的操作（类比Java的GC），这时，其他read only transaction for slave必须停下来，等这个redo log records of one (or last one) mini transaction完成。只有这个atomic apply完成后，read only transaction for slave才能唤醒，并且并发地继续执行，因为这时，B tree是一致的，不会引起这些read only transaction for slave遍历B tree时，发现一个broken B tree，从而导致非法。
 
 Aurora解决这个问题的方法很简单，master将redo log按mini transaction分割，按chunk方式（即不允许发送一半的mini trannsaction redo log records）发过给slave，因为redo log里，任何一个在master上的mini transaction形成的redo log records，中间都绝对不会出现其他mini transaction生成的redo log record，即master在redo log的生成中，已经保证了，它是按mini transaction连续的。
 
@@ -362,7 +362,7 @@ Aurora解决这个问题的方法很简单，master将redo log按mini transactio
 
 答案是：不用。因为我们的目的是保证B tree的一致性，如果此page不在slave的DB cache里，我们无需apply，也一样保证B tree的一致性（slave假设未来不在其DB cache里的page，可以从存储层读到绝对一致的page）。
 
-这带来什么好处？这样，所有在slave的apply工作，都是针对内存而去，没有IO（除了undo log，但undo log的落盘很快），这将使slave的atomic apply for all redo log records of one mini transactionn这个动作的cost非常低，从而使stop the world的代价绝对小，从而让read only transactions for slave可以更早地进入下一步并发工作，从而带来整个slave的吞吐Throughput得到提高。
+这带来什么好处？这样，所有在slave的apply工作，都是针对内存而去，没有IO（除了undo log，但undo log的落盘很快），这将使slave的atomic apply for all redo log records of one mini transaction这个动作的cost非常低，从而使stop the world的代价绝对小，从而让read only transactions for slave可以更早地进入下一步并发工作，从而带来整个slave的吞吐Throughput得到提高。
 
 slave write的意义何在？
 
@@ -408,7 +408,7 @@ slave是异步地接收master的redo log，所以，slave认为的VDL和master�
 
 那么，在从Storage nodee加载这个页面到slave DB cache这个异步过程中，master又发来了新的针对这个page的redo log records，怎么办？
 
-此时，slave apply时（slave write）必须将这些redo log records保留下来（不能忽略omit or skip，即不能认为这个page不在slave的DB cache里），形成针对这个page的临时链表，当存储层返回page数据后，slave立刻apply这个临时链表：tempary redo log records for this page，此时，就生成了，针对新的slave VDL时刻的page，并保证和master那个时刻的一致性。
+此时，slave apply时（slave write）必须将这些redo log records保留下来（不能忽略omit or skip，即不能认为这个page不在slave的DB cache里），形成针对这个page的临时链表，当存储层返回page数据后，slave立刻apply这个临时链表：temp redo log records for this page，此时，就生成了，针对新的slave VDL时刻的page，并保证和master那个时刻的一致性。
 
 上面的分析还带来一个问题，Storage node如果一直保留redo log records，不会撑破Storage nodes的内存？
 
