@@ -167,11 +167,11 @@ undo log还带来一个MVCC的好处。
 
 ### 3-1、quorum write的实现
 
-quorum是一个洋文，它的意思是选举里，必须达到法定人数，才算有效。对于Aurora，它有6个copy，因此系统设定quorum = 4。即4个Storage nodes写成功，才算是quorum write写成功的前提条件（**注意：还不算写成功**）。
+quorum是一个洋文，它的意思是选举里，必须达到法定人数，才算有效。对于Aurora，它有6个copy，因此系统设定quorum = 4。即4个Storage nodes写成功，才算是quorum write写成功的前提条件（**注意：还不算完全成功**）。
 
 前面的描述知道，计算层和存储层时通过网络通信的，而且都是独立的机器node，所以，站在发起write的master眼里，是收到Storage node的response，这个Storage node才算成功，而且收集了至少4个成功返回response的Storage node，master才认为这是quorum write成功的必要条件。
 
-我们又知道，Aurora里，master只发送redo log给Storage node，这个redo log在Computing node内存里，是按LSN顺序不断尾部追加redo log record的，那么Aurora如何处理后面这两个麻烦：其一. 异步的通信；其二，分布的6个Storage nodes。
+我们又知道，Aurora里，master只发送redo log给Storage node，这个redo log在Computing node内存里，是按LSN顺序不断尾部追加redo log record的，那么Aurora master如何处理后面这两个麻烦：其一. 异步的通信；其二，分布的6个Storage nodes。
 
 Aurora master的解决办法是：
 
@@ -181,7 +181,7 @@ Aurora master的解决办法是：
 
 3. 当某个redo log record收集了4个response，master可以不再给剩下的2个Storage node发write请求，因为系统允许至多两个Storage node失败（例如：停机维护）。
 
-4. 当之前的所有的redo log record都收集了至少4个response，当前这个redo log record也收集了至少4个response（即必要和前提条件），master才认为当前这个redo log record写成功，即还必须有之前的redo log record连续写成功的约束。
+4. 当之前的所有的redo log record都收集了至少4个response，当前这个redo log record也收集了至少4个response（即必要和前提条件），master才认为当前这个redo log record写成功（success of quorum write），即还必须有之前的redo log record连续写成功的约束。
 
 5. redo log record对应的动作在master上是否执行，和这个record是否写成功，没有关系，除非这个动作是transaction commmit。即非commit动作不受quorum write的约束和影响（commit的影响请见下面的《对于computing node (master) 的麻烦》）。
 
@@ -235,7 +235,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 所以，Storage node必须缓存redo log record，遍历发现漏洞，然后gosssip其他Storage node补齐这些漏洞。
 
-对于无漏洞的连续的redo log record，Storage node可以放心地一个接着一个地进行apply，获得对应的数据库状态。而且状态可以不只一个，如果条件允许，我们可以用新的状态覆盖旧的状态，或者，删除旧的状态，即回收purge（也可以叫GC，Garbage Collection）。为什么不用一个状态表达呢，为什么说条件允许，为什么要purge or GC？我们后面（《slave的读read》）会涉及这个知识点。
+对于无漏洞的连续的redo log record，Storage node可以放心地一个接着一个地进行apply，获得对应的数据库状态。而且状态可以不只一个，如果条件允许，我们可以用新的状态覆盖旧的状态，或者，删除旧的状态，即回收purge（也可以叫GC，Garbage Collection）。为什么不用一个状态表达呢，为什么说条件允许，为什么要purge or GC？我们后面《slave的读read》会涉及这个知识点。
 
 补注：Aurora的prev LSN是比较复杂的，正如我们前面讲到的，它还有segment shard，同时需要照顾磁盘存储基于block这个单位（即对应的page，磁盘的block和B tree的page，是一一对应的），所以Aurora里面，是存了三个prev LSN，分别是，基于整个redo log record链表的prev LSN，基于segment的prev LSN，和基于Block的prev LSN。本文为了简单，只笼统地说了一个prev LSN，但这不影响整个概念的阐述。
 
@@ -247,7 +247,7 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 
 因此，一直有效（活的）master可以保证redo log record的quorum write，是可以做到：一直连续成功的，而且不断推进的，只是要异步等待一点时间。因此，master可以根据此，判定写存储成功，不断推进master里的并发事务处理并相信相关的落盘保证。
 
-我们来分析一下transaction commit的特别要求：
+我们来分析一下transaction commit（注意：不是下面mini transaction logic mini commit）的特别要求：
 
 传统的MySQL，在收到App的commit请求时，必须先生成对应的redo log record（先在内存里，即redo buffer），然后必须保证写盘成功（flush to disk，同时也保证之前的redo log reccord和相关的undo record log也写盘成功），然后才能接着处理后续的相关内容，包括解锁、改变Transaction状态（从transaction list里删除此Transaction ID）和返回commit成功信息给客户App。
 
@@ -279,13 +279,13 @@ Storage node收到master的redo log record，这样，就可以根据本地的�
 * 一个mini transaction形成的redo log records，中间不会被另外一个mini transaction插入，即从redo log上看，mini transaction log records是连续的
 * 一个mini transaction，一旦开始，一定要完成。这包括：中间执行如果需要锁不会产生死锁（执行前开始前获得的锁可以不算，因为可以发现死锁然后roll back），中间如果splt/merge的页，不会让其他事务读取（比如：通过Lock和Latch实现），即它是个atomic动作，要么开始前do nothing，要么全部完成do all，而且中间执行不受外界影响同时也不对外界的其他事务产生非法错误的影响
 * 当一个mini transaction完成后，它保证其他事务可以安全地浏览整个B tree
-* 一个mini transaction可以产生最少一条，也可以是多个redo log record，这里面的最后一条相当于mini transaction的logic mini commit
+* 一个mini transaction可以产生最少一个，也可以是多个redo log record，这里面的最后一个相当于mini transaction的logic mini commit
 * VDL不过是一个logic mini commit，它最接近VCL
 * VDL小于等于VCL，因此像VCL一样，能保证截止到VDL这个LSN，存储上的page数据是肯定存在的
 
 ## 四、master的读read
 
-首先，正常情况下（非crash & recover阶段），那么，不管masster，还是slave，如果发现需要读的page不在DB cache里（cache miss），那么它只需要到一台Storage node去读，而且**不是quorum read**。注：crash & recover阶段的quorum read，quorum是3，而不是4，因为这可以保证读到最新的值，本文不详细讨论crash和recover以及相关的quorum read。
+首先，正常情况下（非crash & recover阶段），那么，不管master，还是slave，如果发现需要读的page不在DB cache里（cache miss），那么它只需要到一台Storage node去读，而且**不是quorum read**。注：crash & recover阶段的quorum read，quorum是3，而不是4，因为这可以保证读到最新的值，本文不详细讨论crash和recover以及相关的quorum read。
 
 为什么？
 
