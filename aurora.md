@@ -163,7 +163,7 @@ undo log还带来一个MVCC的好处。
 
 注：上面的redo、undo范例中，是抽象模拟。实际对于任何一个field的更改，redo和undo都是记录整个field value。但是，由于一个tuple是由多个field组成，而redo和undo只记录被修改的field的值，所以，上面的抽象是可类比的，即某个tuple的终值，必须通过tuple初值，经过所有的redo log record计算获得。而对应各个Transaction在各种Isolation下读到的合适值，或者某个Transaction需要roll back回到某个旧值，必须对undo log record进行遍历，
 
-## 三、Aurora的写Write : quorum write
+## 三、Aurora的写Write : quorum write (of master)
 
 ### 3-1、quorum write的实现
 
