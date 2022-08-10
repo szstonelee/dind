@@ -360,7 +360,7 @@ Aurora解决这个问题的方法很简单，master将redo log按mini transactio
 
 那么slave上，如果其DB cache里没有对应的page，是否需要到存储层去读出其初值，然后进行apply呢？
 
-答案是：不用。因为我们的目的是保证B tree的一致性，如果此page不在slave的DB cache里，我们无需apply，也一样保证B tree的一致性（slave假设未来不在其DB cache里的page，可以从存储层读到绝对一致的page）。
+答案是：不用。因为我们的目的是保证B tree的一致性，如果此page不在slave的DB cache里，我们无需apply，也一样保证B tree的一致性（slave假设当前不在其DB cache里的page，未来可以从存储层读到绝对一致的page）。
 
 这带来什么好处？这样，所有在slave的apply工作，都是针对内存而去，没有IO（除了undo log，但undo log的落盘很快），这将使slave的atomic apply for all redo log records of one mini transaction这个动作的cost非常低，从而使stop the world的代价绝对小，从而让read only transactions for slave可以更早地进入下一步并发工作，从而带来整个slave的吞吐Throughput得到提高。
 
