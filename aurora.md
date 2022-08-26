@@ -56,7 +56,7 @@ Aurora只有一个Computing node作为master对外服务（注意：随后的补
 
 ```
 *****************************                      **********************************
-*         master            *                      *             slave              *
+*         master            *                      *             slaves             *
 *                           *                      *                                *
 *  1. generate redo, undo   *     redo, undo       *  1. receive redo, undo         *
 *  2. undo to disk          *    ------------>     *  2. undo to disk               *
@@ -73,8 +73,8 @@ redo  |               |  page        (network)                     |  page
 *                     Storage nodes (gossip from peer-to-peer network)              *
 *                                                                                   *
 *           1. receive only redo (and page request)                                 *
-*           2. redo temporaylly save to disk and can totally no write to disk       *            
-*           3. apply redo for write final page to disk                              *
+*           2. redo temporaylly save to disk and can totally no need to disk        *            
+*           3. apply redo for final page to disk                                    *
 *           4. no double-write                                                      *
 *************************************************************************************
 ```
