@@ -55,28 +55,28 @@ Aurora只有一个Computing node作为master对外服务（注意：随后的补
 ### 1-4、落盘处理和相关log
 
 ```
-*****************************************                           **********************************
-*                 master                *                           *             slave              *
-*                                       *                           *                                *
-*  1. generate redo, undo               *       redo, undo          *  1. receive redo, undo         *
-*  2. undo to disk                      *      ------------>        *  2. undo need to disk          *
-*  3. no need to write redo to disk     *       no bin-log          *  3. apply redo, undo by batch  *
-*  4. no need to write page to disk     *                           *  4. no need for redo to disk   *
-*  5. no need for double-write          *                           *  5. no need for double-write   *
-*****************************************                           **********************************
-      |                      /|\                                                    /|\
-      |                       |                                                      |
-redo  |                       |  page             (network)                    page  |
-      |                       |                                                      |
-     \|/                      |                                                      |
-******************************************************************************************************
-*                              Storage nodes (gossip from peer-to-peer network)                      *
-*                                                                                                    *
-*                 1. receive only redo                                                               *
-*                 2. redo temporaylly save to disk and can totally no need to write to disk          *            
-*                 3. no double-write                                                                 *
-*                 4. redo apply for write page to disk                                               *
-******************************************************************************************************
+*****************************                      **********************************
+*         master            *                      *             slave              *
+*                           *                      *                                *
+*  1. generate redo, undo   *     redo, undo       *  1. receive redo, undo         *
+*  2. undo to disk          *    ------------>     *  2. undo to disk               *
+*  3. no redo to disk       *     no bin-log       *  3. apply redo, undo by batch  *
+*  4. no page to disk       *     no page          *  4. no redo, page to disk      *
+*  5. no double-write       *                      *  5. no double-write            *
+*****************************                      **********************************
+      |              /|\                                          /|\
+      |               |                                            |
+redo  |               |  page        (network)                     |  page
+      |               |                                            |
+     \|/              |                                            |
+*************************************************************************************
+*                     Storage nodes (gossip from peer-to-peer network)              *
+*                                                                                   *
+*           1. receive only redo (and page request)                                 *
+*           2. redo temporaylly save to disk and can totally no write to disk       *            
+*           3. apply redo for write final page to disk                              *
+*           4. no double-write                                                      *
+*************************************************************************************
 ```
 
 * master的写盘，只有redo log通信传输到存储层（注意：没有undo log到存储层），也没有master对page的直接落盘（不管是网络上的存储层，还是master的本地磁盘，page落盘在论文里被叫做data落盘）
