@@ -70,7 +70,7 @@ redo  |               |  page        (network)                     |  page
       |               |                                            |
      \|/              |                                            |
 *************************************************************************************
-*                     Storage nodes (gossip from peer-to-peer network)              *
+*                   Storage nodes (gossip from peer-to-peer network)                *
 *                                                                                   *
 *           1. receive only redo (and page request)                                 *
 *           2. redo temporaylly save to disk and can totally no need to disk        *            
