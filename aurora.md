@@ -54,6 +54,31 @@ Aurora只有一个Computing node作为master对外服务（注意：随后的补
 
 ### 1-4、落盘处理和相关log
 
+```
+*****************************************                           **********************************
+*                 master                *                           *             slave              *
+*                                       *                           *                                *
+*  1. generate redo, undo               *       redo, undo          *  1. receive redo, undo         *
+*  2. undo to disk                      *      ------------>        *  2. undo need to disk          *
+*  3. no need to write redo to disk     *       no bin-log          *  3. apply redo, undo by batch  *
+*  4. no need to write page to disk     *                           *  4. no need for redo to disk   *
+*  5. no need for double-write          *                           *  5. no need for double-write   *
+*****************************************                           **********************************
+      |                      /|\                                                    /|\
+      |                       |                                                      |
+redo  |                       |  page             (network)                    page  |
+      |                       |                                                      |
+     \|/                      |                                                      |
+******************************************************************************************************
+*                              Storage nodes (gossip from peer-to-peer network)                      *
+*                                                                                                    *
+*                 1. receive only redo                                                               *
+*                 2. redo temporaylly save to disk and can totally no need to write to disk          *            
+*                 3. no double-write                                                                 *
+*                 4. redo apply for write page to disk                                               *
+******************************************************************************************************
+```
+
 * master的写盘，只有redo log通信传输到存储层（注意：没有undo log到存储层），也没有master对page的直接落盘（不管是网络上的存储层，还是master的本地磁盘，page落盘在论文里被叫做data落盘）
 
 * master和slave因为没有page的落盘，所以，也就无需double write
@@ -367,7 +392,10 @@ Aurora解决这个问题的方法很简单，master将redo log按mini transactio
 slave write的意义何在？
 
 ```
-slave write，相当于照搬了master某个内存快照，但只作用于slave内存里的对应的page，而且保证了B tree的一致性
+slave write，相当于照搬了master某个内存快照，
+
+但只作用于slave内存里的对应的page，而且保证了B tree的一致性
+(即master内存快照，必须是mini transaction结尾的)
 ```
 
 但是，你会想到一个问题，如果read only transaction在slave上执行时，需要一个page，而这个page不在DB cache，它难道不需要到存储层去读盘吗？
