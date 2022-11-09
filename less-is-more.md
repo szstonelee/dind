@@ -94,5 +94,12 @@ Kafka不用像Raft那样，选举时，搞人人投票，搞冲突机制，它�
 
 即佛教里的禅语：**少就是多，多就是少**
 
+我发现很多同学都没有很好地理解：Less is More，More is Less这句话（误以为是编程思想），我这里再具体一点：
+
+```
+Raft  Mode: Less Tier, More Cost
+Kafka Mode: More Tier, Less Cost 
+```
+
 这也是[BunnyRedis](https://zhuanlan.zhihu.com/p/392646113)采用Kafka模式的一个很重要的因素。
 
